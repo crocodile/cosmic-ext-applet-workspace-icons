@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=Workspace Icons
+Comment=Show application icons on COSMIC workspaces
+Type=Application
+Exec=cosmic-ext-applet-workspace-icons
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Workspace;Workspaces;Icons;
+Icon=io.github.crocodile.cosmic-ext-applet-workspace-icons
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-HostWaylandDisplay=true
+X-OverflowPriority=5
+X-OverflowMinSize=8

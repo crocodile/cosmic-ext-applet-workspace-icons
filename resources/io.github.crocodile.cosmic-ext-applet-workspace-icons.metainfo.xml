@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.crocodile.cosmic-ext-applet-workspace-icons</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <project_group>COSMIC</project_group>
+  <developer id="io.github.crocodile">
+    <name>crocodile</name>
+  </developer>
+  <name>Workspace Icons</name>
+  <summary>Show application icons on COSMIC workspaces</summary>
+  <description>
+    <p>Workspace Icons is a COSMIC panel applet that adds application icons to numbered workspaces. It helps you see which apps are open on each workspace and monitor without opening the workspace overview.</p>
+    <p>The applet keeps the familiar workspace switching, scrolling, and overview behavior from COSMIC's built-in workspace applet while adding compact visual context for open, minimized, and maximized windows.</p>
+  </description>
+  <launchable type="desktop-id">io.github.crocodile.cosmic-ext-applet-workspace-icons.desktop</launchable>
+  <url type="homepage">https://github.com/crocodile/cosmic-ext-applet-workspace-icons</url>
+  <url type="bugtracker">https://github.com/crocodile/cosmic-ext-applet-workspace-icons/issues</url>
+  <url type="vcs-browser">https://github.com/crocodile/cosmic-ext-applet-workspace-icons</url>
+  <provides>
+    <id>com.system76.CosmicApplet</id>
+    <binary>cosmic-ext-applet-workspace-icons</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>COSMIC</keyword>
+    <keyword>Applet</keyword>
+    <keyword>Workspace</keyword>
+    <keyword>Workspaces</keyword>
+    <keyword>Icons</keyword>
+    <keyword>Panel</keyword>
+  </keywords>
+  <releases>
+    <release type="stable" version="0.1.0" date="2026-07-05">
+      <description>
+        <p>Initial standalone release.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>
