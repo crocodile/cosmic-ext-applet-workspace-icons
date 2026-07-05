@@ -175,7 +175,7 @@ impl IcedWorkspacesApplet {
             window_size.0.get() as f32
         };
 
-        (cross_axis_size * 0.52).clamp(16.0, 24.0)
+        (cross_axis_size * 0.52).max(16.0)
     }
 
     fn number_section_width(&self, has_apps: bool) -> f32 {
@@ -640,7 +640,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
             let icon_size = if horizontal {
                 self.app_icon_size()
             } else {
-                (width.min(height) * 0.3).clamp(10.0, 14.0)
+                (width.min(height) * 0.3).max(10.0)
             };
             let icons = apps
                 .iter()

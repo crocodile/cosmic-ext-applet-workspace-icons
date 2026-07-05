@@ -4,6 +4,14 @@ Workspace Icons is a third-party COSMIC panel applet based on the COSMIC
 Numbered Workspaces applet. It shows application icons beside each workspace
 number so you can see where windows are at a glance.
 
+## Screenshots
+
+<img src="resources/screenshots/workspace-icons-panel-1.png" alt="Workspace Icons applet showing app icons beside workspace numbers" />
+
+<br>
+
+<img src="resources/screenshots/workspace-icons-panel-2.png" alt="Workspace Icons settings popover for icon display options" />
+
 ## Features
 
 - Displays application icons beside each workspace number.

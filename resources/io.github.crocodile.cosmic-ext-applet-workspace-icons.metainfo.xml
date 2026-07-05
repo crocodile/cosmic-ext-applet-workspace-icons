@@ -8,11 +8,21 @@
     <name>crocodile</name>
   </developer>
   <name>Workspace Icons</name>
-  <summary>Show application icons on COSMIC workspaces</summary>
+  <summary>Show app icons beside COSMIC workspaces</summary>
   <description>
-    <p>Workspace Icons is a COSMIC panel applet that adds application icons to numbered workspaces. It helps you see which apps are open on each workspace and monitor without opening the workspace overview.</p>
-    <p>The applet keeps the familiar workspace switching, scrolling, and overview behavior from COSMIC's built-in workspace applet while adding compact visual context for open, minimized, and maximized windows.</p>
+    <p>Workspace Icons adds application icons to the COSMIC panel's numbered workspaces, so you can see where your windows are at a glance.</p>
+    <p>It keeps the normal workspace switching, scrolling, and overview behavior while adding compact indicators for open, minimized, and maximized windows.</p>
   </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-panel-1.png</image>
+      <caption>Application icons shown beside workspace numbers in the COSMIC panel.</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-panel-2.png</image>
+      <caption>Settings for dimming minimized windows and highlighting maximized windows.</caption>
+    </screenshot>
+  </screenshots>
   <launchable type="desktop-id">io.github.crocodile.cosmic-ext-applet-workspace-icons.desktop</launchable>
   <url type="homepage">https://github.com/crocodile/cosmic-ext-applet-workspace-icons</url>
   <url type="bugtracker">https://github.com/crocodile/cosmic-ext-applet-workspace-icons/issues</url>
