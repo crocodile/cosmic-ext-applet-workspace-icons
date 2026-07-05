@@ -33,6 +33,41 @@ just install
 
 Then open COSMIC panel settings and add **Workspace Icons**.
 
+## Testing The Flatpak Build
+
+Workspace Icons is intended to be distributed as a Flatpak through the COSMIC
+Store. Until then, the Flatpak packaging draft lives in
+`packaging/io.github.crocodile.cosmic-ext-applet-workspace-icons/`.
+
+Before testing the Flatpak, remove any source install first so COSMIC does not
+show stale or duplicate applet entries:
+
+```bash
+just uninstall
+```
+
+Then install the local Flatpak build:
+
+```bash
+flatpak-builder --user --install --force-clean \
+  build-dir/workspace-icons-flatpak \
+  packaging/io.github.crocodile.cosmic-ext-applet-workspace-icons/io.github.crocodile.cosmic-ext-applet-workspace-icons.json
+```
+
+If the applet list does not refresh immediately, log out and back in. After
+adding **Workspace Icons** to the panel, confirm that the Flatpak version is
+running with:
+
+```bash
+flatpak ps
+```
+
+To remove the local Flatpak test install:
+
+```bash
+flatpak uninstall --user io.github.crocodile.cosmic-ext-applet-workspace-icons
+```
+
 ## Development
 
 ```bash
