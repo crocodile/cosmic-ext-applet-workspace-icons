@@ -1,6 +1,6 @@
 # Workspace Icons
 
-Workspace Icons is a third-party COSMIC panel applet based on the COSMIC
+Workspace Icons is a third-party [COSMIC](https://en.wikipedia.org/wiki/COSMIC_desktop) panel applet based on the COSMIC
 Numbered Workspaces applet. It shows application icons beside each workspace
 number so you can see where windows are at a glance.
 
