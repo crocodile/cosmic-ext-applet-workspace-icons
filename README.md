@@ -79,6 +79,9 @@ cargo check
 cargo test
 ```
 
+For a technical map of how this differs from COSMIC's Numbered Workspaces applet,
+see [Changes From COSMIC Numbered Workspaces](docs/numbered-workspaces-changes.md).
+
 ## License
 
 GPL-3.0-only.
