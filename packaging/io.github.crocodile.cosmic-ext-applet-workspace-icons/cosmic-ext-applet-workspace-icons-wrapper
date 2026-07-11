@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+export XDG_DATA_HOME="${HOME}/.local/share"
+export XDG_DATA_DIRS="/run/host/usr/local/share:/run/host/usr/share:/var/lib/flatpak/exports/share:/app/share:${HOME}/.local/share/flatpak/exports/share:${HOME}/.local/share:/var/lib/snapd/desktop"
+
+exec /app/bin/cosmic-ext-applet-workspace-icons-bin "$@"

@@ -18,10 +18,12 @@
     "--talk-name=com.system76.CosmicSettingsDaemon.Config",
     "--talk-name=com.system76.CosmicSettingsDaemon.Config.*",
     "--filesystem=xdg-config/cosmic:rw",
-    "--env=XDG_DATA_DIRS=/run/host/usr/share:/var/lib/flatpak/exports/share:/app/share:${HOME}/.local/share/flatpak/exports/share:${HOME}/.local/share",
     "--filesystem=host-os:ro",
+    "--filesystem=/var/lib/snapd/desktop:ro",
+    "--filesystem=/var/lib/snapd/snap:ro",
     "--filesystem=/var/lib/flatpak/exports/share/applications:ro",
     "--filesystem=/var/lib/flatpak/exports/share/icons:ro",
+    "--filesystem=/var/lib/flatpak/app:ro",
     "--filesystem=~/.local/share/flatpak/exports/share/applications:ro",
     "--filesystem=~/.local/share/flatpak/exports/share/icons:ro",
     "--filesystem=~/.local/share/applications:ro",
@@ -41,7 +43,8 @@
       "build-commands": [
         "cargo --offline fetch --manifest-path Cargo.toml --verbose",
         "cargo --offline build --release --verbose",
-        "install -Dm0755 target/release/cosmic-ext-applet-workspace-icons /app/bin/cosmic-ext-applet-workspace-icons",
+        "install -Dm0755 target/release/cosmic-ext-applet-workspace-icons /app/bin/cosmic-ext-applet-workspace-icons-bin",
+        "install -Dm0755 cosmic-ext-applet-workspace-icons-wrapper /app/bin/cosmic-ext-applet-workspace-icons",
         "install -Dm0644 resources/io.github.crocodile.cosmic-ext-applet-workspace-icons.desktop /app/share/applications/io.github.crocodile.cosmic-ext-applet-workspace-icons.desktop",
         "install -Dm0644 resources/io.github.crocodile.cosmic-ext-applet-workspace-icons.metainfo.xml /app/share/metainfo/io.github.crocodile.cosmic-ext-applet-workspace-icons.metainfo.xml",
         "install -Dm0644 resources/io.github.crocodile.cosmic-ext-applet-workspace-icons.svg /app/share/icons/hicolor/scalable/apps/io.github.crocodile.cosmic-ext-applet-workspace-icons.svg"
@@ -50,7 +53,11 @@
         {
           "type": "git",
           "url": "https://github.com/crocodile/cosmic-ext-applet-workspace-icons.git",
-          "commit": "1d152bddc616c89f97beae1dfa8c3866b15e0b73"
+          "commit": "b1070c45d75e198e4c40cb6cacd998ab43b31b2c"
+        },
+        {
+          "type": "file",
+          "path": "cosmic-ext-applet-workspace-icons-wrapper"
         },
         "cargo-sources.json"
       ]
