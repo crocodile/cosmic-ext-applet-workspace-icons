@@ -26,6 +26,7 @@
     "--filesystem=/var/lib/flatpak/app:ro",
     "--filesystem=~/.local/share/flatpak/exports/share/applications:ro",
     "--filesystem=~/.local/share/flatpak/exports/share/icons:ro",
+    "--filesystem=~/.local/share/flatpak/app:ro",
     "--filesystem=~/.local/share/applications:ro",
     "--filesystem=~/.local/share/icons:ro",
     "--filesystem=~/.icons:ro"
