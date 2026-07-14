@@ -674,6 +674,9 @@ impl cosmic::Application for IcedWorkspacesApplet {
 
             let number: Element<'_, Message> =
                 container(self.core.applet.text(&w.name).font(cosmic::font::bold()))
+                    .class(ContainerClass::Custom(Box::new(|_| {
+                        container::Style::default()
+                    })))
                     .width(Length::Fixed(self.number_section_width(!apps.is_empty())))
                     .align_x(Alignment::Center)
                     .align_y(Alignment::Center)
@@ -683,6 +686,9 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 number
             } else {
                 let app_group: Element<'_, Message> = container(app_strip)
+                    .class(ContainerClass::Custom(Box::new(|_| {
+                        container::Style::default()
+                    })))
                     .padding(if horizontal {
                         [APP_GROUP_VERTICAL_PADDING, APP_GROUP_HORIZONTAL_PADDING]
                     } else {
@@ -716,6 +722,9 @@ impl cosmic::Application for IcedWorkspacesApplet {
 
             let btn = button(
                 container(content)
+                    .class(ContainerClass::Custom(Box::new(|_| {
+                        container::Style::default()
+                    })))
                     .width(Length::Fixed(width))
                     .height(Length::Fixed(height))
                     .padding(if horizontal && !apps.is_empty() {
@@ -782,9 +791,8 @@ impl cosmic::Application for IcedWorkspacesApplet {
                                 Background::Color(theme.current_container().small_widget.into())
                             }),
                             border: Border {
-                                color: theme.current_container().divider.into(),
-                                width: if has_apps { 1.0 } else { 0.0 },
                                 radius: cosmic.radius_xl().into(),
+                                ..Default::default()
                             },
                             border_radius: cosmic.radius_xl().into(),
                             text_color: theme.current_container().component.on.into(),

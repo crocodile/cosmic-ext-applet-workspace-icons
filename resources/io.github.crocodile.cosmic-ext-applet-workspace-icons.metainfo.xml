@@ -51,6 +51,11 @@
     <keyword>Panel</keyword>
   </keywords>
   <releases>
+    <release type="stable" version="1.0.2" date="2026-07-14">
+      <description>
+        <p>Fix active workspace number contrast with light accent colours.</p>
+      </description>
+    </release>
     <release type="stable" version="1.0.1" date="2026-07-14">
       <description>
         <p>Initial standalone release.</p>
