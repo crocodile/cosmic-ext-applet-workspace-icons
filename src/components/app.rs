@@ -251,11 +251,23 @@ impl IcedWorkspacesApplet {
 
     fn resolve_app_metadata(&mut self, app_id: &str) -> AppMetadata {
         let app_id_key = fde::unicase::Ascii::new(app_id);
-        let mut desktop_entry = fde::find_app_by_id(&self.desktop_entries, app_id_key).cloned();
+        let mut desktop_entry = fde::find_app_by_id(&self.desktop_entries, app_id_key)
+            .or_else(|| {
+                self.desktop_entries
+                    .iter()
+                    .find(|entry| entry.matches_wm_class(app_id_key))
+            })
+            .cloned();
 
         if desktop_entry.is_none() {
             self.update_desktop_entries();
-            desktop_entry = fde::find_app_by_id(&self.desktop_entries, app_id_key).cloned();
+            desktop_entry = fde::find_app_by_id(&self.desktop_entries, app_id_key)
+                .or_else(|| {
+                    self.desktop_entries
+                        .iter()
+                        .find(|entry| entry.matches_wm_class(app_id_key))
+                })
+                .cloned();
         }
 
         let desktop_entry =
