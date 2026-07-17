@@ -12,6 +12,7 @@ pub const APP_ID: &str = "io.github.crocodile.cosmic-ext-applet-workspace-icons"
 pub struct WorkspacesAppletConfig {
     pub dim_minimized_window_icons: bool,
     pub highlight_maximized_window_icons: bool,
+    pub active_workspace_padding: u8,
 }
 
 impl Default for WorkspacesAppletConfig {
@@ -19,6 +20,7 @@ impl Default for WorkspacesAppletConfig {
         Self {
             dim_minimized_window_icons: true,
             highlight_maximized_window_icons: true,
+            active_workspace_padding: 1,
         }
     }
 }

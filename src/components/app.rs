@@ -31,7 +31,7 @@ use cosmic::{
     scroll::DiscreteScrollState,
     surface, theme,
     theme::Container as ContainerClass,
-    widget::{Id, autosize, container, divider, mouse_area, toggler},
+    widget::{Id, autosize, container, divider, mouse_area, slider, toggler},
 };
 
 use crate::{
@@ -468,6 +468,7 @@ enum Message {
     PopupClosed(window::Id),
     DimMinimizedWindowIcons(bool),
     HighlightMaximizedWindowIcons(bool),
+    ActiveWorkspacePadding(u8),
     ConfigUpdated(WorkspacesAppletConfig),
     Surface(surface::Action),
 }
@@ -599,6 +600,10 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config.highlight_maximized_window_icons = enabled;
                 self.write_config();
             }
+            Message::ActiveWorkspacePadding(padding) => {
+                self.config.active_workspace_padding = padding;
+                self.write_config();
+            }
             Message::ConfigUpdated(config) => {
                 self.config = config;
             }
@@ -621,6 +626,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
 
         let buttons = self.workspaces[..popup_index].iter().map(|w| {
             let horizontal = self.core.applet.is_horizontal();
+            let active = w.state.contains(ext_workspace_handle_v1::State::Active);
             let apps = self.apps_for_workspace(w);
             let (width, height) = if horizontal {
                 (
@@ -720,13 +726,29 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 }
             };
 
+            let active_padding = if active {
+                self.config.active_workspace_padding as f32
+            } else {
+                0.0
+            };
+            let button_width = if horizontal {
+                width
+            } else {
+                (width - active_padding * 2.0).max(1.0)
+            };
+            let button_height = if horizontal {
+                (height - active_padding * 2.0).max(1.0)
+            } else {
+                height
+            };
+
             let btn = button(
                 container(content)
                     .class(ContainerClass::Custom(Box::new(|_| {
                         container::Style::default()
                     })))
-                    .width(Length::Fixed(width))
-                    .height(Length::Fixed(height))
+                    .width(Length::Fixed(button_width))
+                    .height(Length::Fixed(button_height))
                     .padding(if horizontal && !apps.is_empty() {
                         Padding {
                             left: WORKSPACE_LEADING_PADDING,
@@ -740,7 +762,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .align_y(Alignment::Center),
             )
             .on_press(
-                if w.state.contains(ext_workspace_handle_v1::State::Active) {
+                if active {
                     Message::WorkspaceOverview
                 } else {
                     Message::WorkspacePressed(w.handle.clone())
@@ -750,7 +772,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
 
             let has_apps = !apps.is_empty();
             let btn = btn.class(
-                if w.state.contains(ext_workspace_handle_v1::State::Active) {
+                if active {
                     cosmic::theme::iced::Button::Primary
                 } else if w.state.contains(ext_workspace_handle_v1::State::Urgent) {
                     let appearance = |theme: &Theme| {
@@ -817,6 +839,16 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     ))
                 },
             );
+
+            let btn: Element<'_, Message> = container(btn)
+                .width(Length::Fixed(width))
+                .height(Length::Fixed(height))
+                .padding(if horizontal {
+                    [active_padding, 0.0]
+                } else {
+                    [0.0, active_padding]
+                })
+                .into();
 
             let workspace_button: Element<'_, Message> = if has_apps {
                 self.core
@@ -892,6 +924,27 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .label(crate::fl!("highlight-maximized-window-icons"))
                     .text_size(14)
                     .width(Length::Fill)
+            ),
+            padded_control(divider::horizontal::default())
+                .padding([spacing.space_xxs, spacing.space_s]),
+            padded_control(
+                column![
+                    row![
+                        self.core.applet.text(crate::fl!("active-workspace-padding")),
+                        space::horizontal(),
+                        self.core.applet.text(format!(
+                            "{} px",
+                            self.config.active_workspace_padding
+                        ))
+                    ]
+                    .align_y(Alignment::Center),
+                    slider(
+                        0..=8,
+                        self.config.active_workspace_padding,
+                        Message::ActiveWorkspacePadding
+                    )
+                ]
+                .spacing(spacing.space_xxs)
             )
         ]
         .align_x(Alignment::Start)
