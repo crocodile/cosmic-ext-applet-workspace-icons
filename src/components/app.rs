@@ -66,6 +66,8 @@ const MAXIMIZED_HIGHLIGHT_SCALE: f32 = 1.28;
 const MAXIMIZED_ICON_GLOW_OPACITY: f32 = 0.24;
 const INACTIVE_PILL_BACKGROUND_OPACITY: f32 = 0.55;
 const INACTIVE_PILL_HOVER_BACKGROUND_OPACITY: f32 = 0.7;
+const XL_ICON_SIZE_THRESHOLD: f32 = 40.0;
+const XL_WORKSPACE_NUMBER_FONT_SIZE: f32 = 33.0;
 const DECREASE_ICON_SVG: &[u8] = br##"
 <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
   <rect x="3" y="7" width="10" height="2" rx="1" fill="#000"/>
@@ -186,6 +188,15 @@ fn informative_titles<'a>(
 
 fn pill_spacing_percent(value: u8) -> u8 {
     value.min(MAX_PILL_SPACING_PERCENT)
+}
+
+fn occupied_number_section_major_size(base_size: f32, icon_size: f32) -> f32 {
+    let preferred_size = (base_size * 0.65).max(20.0);
+    preferred_size.min(icon_size.max(28.0))
+}
+
+fn workspace_number_font_size(icon_size: f32) -> Option<f32> {
+    (icon_size >= XL_ICON_SIZE_THRESHOLD).then_some(XL_WORKSPACE_NUMBER_FONT_SIZE)
 }
 
 fn symbolic_svg_icon(bytes: &'static [u8]) -> cosmic::widget::icon::Handle {
@@ -316,7 +327,7 @@ impl IcedWorkspacesApplet {
     fn number_section_major_size(&self, has_apps: bool) -> f32 {
         let base_size = self.suggested_button_size();
         if has_apps {
-            (base_size * 0.65).clamp(20.0, 28.0)
+            occupied_number_section_major_size(base_size, self.app_icon_size())
         } else {
             base_size
         }
@@ -572,8 +583,9 @@ mod tests {
     use super::{
         Background, Color, INACTIVE_PILL_BACKGROUND_OPACITY,
         INACTIVE_PILL_HOVER_BACKGROUND_OPACITY, IcedWorkspacesApplet, Layout, Theme,
-        WORKSPACE_LIST_EDGE_PADDING, informative_titles, oriented_padding, pill_spacing_percent,
-        workspace_list_padding,
+        WORKSPACE_LIST_EDGE_PADDING, informative_titles, occupied_number_section_major_size,
+        oriented_padding, pill_spacing_percent, workspace_list_padding,
+        workspace_number_font_size,
     };
 
     #[test]
@@ -654,6 +666,25 @@ mod tests {
         assert_eq!(pill_spacing_percent(0), 0);
         assert_eq!(pill_spacing_percent(10), 10);
         assert_eq!(pill_spacing_percent(u8::MAX), 10);
+    }
+
+    #[test]
+    fn gives_workspace_numbers_more_room_as_icons_grow() {
+        let small = occupied_number_section_major_size(40.0, 20.8);
+        let large = occupied_number_section_major_size(64.0, 33.28);
+        let extra_large = occupied_number_section_major_size(80.0, 41.6);
+
+        assert!((small - 26.0).abs() < 0.001);
+        assert!((large - 33.28).abs() < 0.001);
+        assert!((extra_large - 41.6).abs() < 0.001);
+    }
+
+    #[test]
+    fn enlarges_workspace_numbers_only_at_xl_icon_sizes() {
+        assert_eq!(workspace_number_font_size(33.28), None);
+        assert_eq!(workspace_number_font_size(39.99), None);
+        assert_eq!(workspace_number_font_size(40.0), Some(33.0));
+        assert_eq!(workspace_number_font_size(41.6), Some(33.0));
     }
 }
 
@@ -896,10 +927,15 @@ impl cosmic::Application for IcedWorkspacesApplet {
             };
 
             let number_section_size = self.number_section_major_size(!apps.is_empty());
-            let number = container(self.core.applet.text(&w.name).font(cosmic::font::bold()))
-                .class(ContainerClass::Custom(Box::new(|_| {
-                    container::Style::default()
-                })));
+            let number_text = self.core.applet.text(&w.name).font(cosmic::font::bold());
+            let number_text = if let Some(font_size) = workspace_number_font_size(icon_size) {
+                number_text.size(font_size)
+            } else {
+                number_text
+            };
+            let number = container(number_text).class(ContainerClass::Custom(Box::new(|_| {
+                container::Style::default()
+            })));
             let number: Element<'_, Message> = if horizontal {
                 number
                     .width(Length::Fixed(number_section_size))
