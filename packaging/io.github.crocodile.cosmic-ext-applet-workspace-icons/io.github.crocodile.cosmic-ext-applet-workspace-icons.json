@@ -19,6 +19,7 @@
     "--talk-name=com.system76.CosmicSettingsDaemon.Config.*",
     "--filesystem=xdg-config/cosmic:rw",
     "--filesystem=host-os:ro",
+    "--filesystem=/opt:ro",
     "--filesystem=/var/lib/snapd/desktop:ro",
     "--filesystem=/var/lib/snapd/snap:ro",
     "--filesystem=/var/lib/flatpak/exports/share/applications:ro",
