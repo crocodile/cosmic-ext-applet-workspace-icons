@@ -53,8 +53,8 @@ static AUTOSIZE_MAIN_ID: LazyLock<Id> = LazyLock::new(|| Id::new("autosize-main"
 const SCROLL_RATE_LIMIT: Duration = Duration::from_millis(200);
 const MAX_VISIBLE_APPS: usize = 5;
 const APP_ICON_SPACING: f32 = 3.0;
-const APP_GROUP_HORIZONTAL_PADDING: f32 = 6.0;
-const APP_GROUP_VERTICAL_PADDING: f32 = 2.0;
+const APP_GROUP_MAJOR_PADDING: f32 = 6.0;
+const APP_GROUP_CROSS_AXIS_PADDING: f32 = 2.0;
 const WORKSPACE_CONTENT_SPACING: f32 = 2.0;
 const WORKSPACE_BUTTON_SPACING: f32 = 4.0;
 const WORKSPACE_LIST_EDGE_PADDING: f32 = 2.0;
@@ -99,6 +99,23 @@ fn workspace_list_padding(layout: Layout) -> Padding {
             top: WORKSPACE_LIST_EDGE_PADDING,
             bottom: WORKSPACE_LIST_EDGE_PADDING,
             ..Padding::ZERO
+        },
+    }
+}
+
+fn oriented_padding(layout: Layout, leading: f32, trailing: f32, cross_axis: f32) -> Padding {
+    match layout {
+        Layout::Row => Padding {
+            top: cross_axis,
+            right: trailing,
+            bottom: cross_axis,
+            left: leading,
+        },
+        Layout::Column => Padding {
+            top: leading,
+            right: cross_axis,
+            bottom: trailing,
+            left: cross_axis,
         },
     }
 }
@@ -296,9 +313,9 @@ impl IcedWorkspacesApplet {
         (cross_axis_size * 0.52).max(16.0)
     }
 
-    fn number_section_width(&self, has_apps: bool) -> f32 {
+    fn number_section_major_size(&self, has_apps: bool) -> f32 {
         let base_size = self.suggested_button_size();
-        if self.core.applet.is_horizontal() && has_apps {
+        if has_apps {
             (base_size * 0.65).clamp(20.0, 28.0)
         } else {
             base_size
@@ -313,14 +330,14 @@ impl IcedWorkspacesApplet {
         }
     }
 
-    fn app_group_width(&self, apps: &[WorkspaceApp<'_>]) -> f32 {
+    fn app_group_major_size(&self, apps: &[WorkspaceApp<'_>]) -> f32 {
         if apps.is_empty() {
             return 0.0;
         }
 
         let icon_size = self.app_icon_size();
         let visible_count = apps.len().min(MAX_VISIBLE_APPS);
-        let visible_width = apps
+        let visible_size = apps
             .iter()
             .take(visible_count)
             .map(|app| {
@@ -330,32 +347,28 @@ impl IcedWorkspacesApplet {
                 )
             })
             .sum::<f32>();
-        let overflow_width = if apps.len() > visible_count {
+        let overflow_size = if apps.len() > visible_count {
             self.app_icon_size() * 1.15 + APP_ICON_SPACING
         } else {
             0.0
         };
 
-        visible_width
+        visible_size
             + visible_count.saturating_sub(1) as f32 * APP_ICON_SPACING
-            + overflow_width
-            + APP_GROUP_HORIZONTAL_PADDING * 2.0
+            + overflow_size
+            + APP_GROUP_MAJOR_PADDING * 2.0
     }
 
     fn workspace_button_major_size(&self, workspace: &Workspace) -> f32 {
         let base_size = self.suggested_button_size();
-        if self.core.applet.is_horizontal() {
-            let apps = self.apps_for_workspace(workspace);
-            if !apps.is_empty() {
-                WORKSPACE_LEADING_PADDING
-                    + WORKSPACE_TRAILING_PADDING
-                    + self.number_section_width(true)
-                    + WORKSPACE_CONTENT_SPACING * 2.0
-                    + WORKSPACE_DIVIDER_WIDTH
-                    + self.app_group_width(&apps)
-            } else {
-                base_size
-            }
+        let apps = self.apps_for_workspace(workspace);
+        if !apps.is_empty() {
+            WORKSPACE_LEADING_PADDING
+                + WORKSPACE_TRAILING_PADDING
+                + self.number_section_major_size(true)
+                + WORKSPACE_CONTENT_SPACING * 2.0
+                + WORKSPACE_DIVIDER_WIDTH
+                + self.app_group_major_size(&apps)
         } else {
             base_size
         }
@@ -559,7 +572,7 @@ mod tests {
     use super::{
         Background, Color, INACTIVE_PILL_BACKGROUND_OPACITY,
         INACTIVE_PILL_HOVER_BACKGROUND_OPACITY, IcedWorkspacesApplet, Layout, Theme,
-        WORKSPACE_LIST_EDGE_PADDING, informative_titles, pill_spacing_percent,
+        WORKSPACE_LIST_EDGE_PADDING, informative_titles, oriented_padding, pill_spacing_percent,
         workspace_list_padding,
     };
 
@@ -576,6 +589,21 @@ mod tests {
         assert_eq!(vertical.bottom, WORKSPACE_LIST_EDGE_PADDING);
         assert_eq!(vertical.left, 0.0);
         assert_eq!(vertical.right, 0.0);
+    }
+
+    #[test]
+    fn rotates_leading_trailing_and_cross_axis_padding() {
+        let horizontal = oriented_padding(Layout::Row, 5.0, 8.0, 2.0);
+        assert_eq!(horizontal.top, 2.0);
+        assert_eq!(horizontal.right, 8.0);
+        assert_eq!(horizontal.bottom, 2.0);
+        assert_eq!(horizontal.left, 5.0);
+
+        let vertical = oriented_padding(Layout::Column, 5.0, 8.0, 2.0);
+        assert_eq!(vertical.top, 5.0);
+        assert_eq!(vertical.right, 2.0);
+        assert_eq!(vertical.bottom, 8.0);
+        assert_eq!(vertical.left, 2.0);
     }
 
     #[test]
@@ -815,7 +843,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
         if self.workspaces.is_empty() {
             return row![].padding(8).into();
         }
-        let suggested_total = self.suggested_button_size();
         let suggested_window_size = self.core.applet.suggested_window_size();
         let popup_index = self.popup_index().unwrap_or(self.workspaces.len());
 
@@ -824,27 +851,17 @@ impl cosmic::Application for IcedWorkspacesApplet {
             let active = w.state.contains(ext_workspace_handle_v1::State::Active);
             let urgent = w.state.contains(ext_workspace_handle_v1::State::Urgent);
             let apps = self.apps_for_workspace(w);
+            let major_size = self.workspace_button_major_size(w);
             let (width, height) = if horizontal {
-                (
-                    self.workspace_button_major_size(w),
-                    suggested_window_size.1.get() as f32,
-                )
+                (major_size, suggested_window_size.1.get() as f32)
             } else {
-                (suggested_window_size.0.get() as f32, suggested_total)
+                (suggested_window_size.0.get() as f32, major_size)
             };
 
             let tooltip = self.workspace_tooltip(&apps);
-            let visible_app_count = if horizontal {
-                apps.len().min(MAX_VISIBLE_APPS)
-            } else {
-                apps.len().min(2)
-            };
-            let icon_size = if horizontal {
-                self.app_icon_size()
-            } else {
-                (width.min(height) * 0.3).max(10.0)
-            };
-            let icons = apps
+            let visible_app_count = apps.len().min(MAX_VISIBLE_APPS);
+            let icon_size = self.app_icon_size();
+            let mut icons = apps
                 .iter()
                 .take(visible_app_count)
                 .map(|app| {
@@ -852,37 +869,49 @@ impl cosmic::Application for IcedWorkspacesApplet {
                         app.metadata,
                         icon_size,
                         self.config.dim_minimized_window_icons && app.all_minimized(),
-                        horizontal
-                            && self.config.highlight_maximized_window_icons
+                        self.config.highlight_maximized_window_icons
                             && app.has_maximized(),
                     )
-                });
-            let mut app_strip = row(icons)
-                .spacing(if horizontal { APP_ICON_SPACING } else { 1.0 })
-                .align_y(Alignment::Center);
+                })
+                .collect::<Vec<_>>();
             if apps.len() > visible_app_count {
-                let overflow = if horizontal {
-                    format!("+{}", apps.len() - visible_app_count)
-                } else {
-                    "…".to_owned()
-                };
-                app_strip = app_strip.push(
+                icons.push(
                     self.core
                         .applet
-                        .text(overflow)
-                        .size((icon_size * 0.55).max(10.0)),
+                        .text(format!("+{}", apps.len() - visible_app_count))
+                        .size((icon_size * 0.55).max(10.0))
+                        .into(),
                 );
             }
-
-            let number: Element<'_, Message> =
-                container(self.core.applet.text(&w.name).font(cosmic::font::bold()))
-                    .class(ContainerClass::Custom(Box::new(|_| {
-                        container::Style::default()
-                    })))
-                    .width(Length::Fixed(self.number_section_width(!apps.is_empty())))
-                    .align_x(Alignment::Center)
+            let app_strip: Element<'_, Message> = if horizontal {
+                row(icons)
+                    .spacing(APP_ICON_SPACING)
                     .align_y(Alignment::Center)
-                    .into();
+                    .into()
+            } else {
+                column(icons)
+                    .spacing(APP_ICON_SPACING)
+                    .align_x(Alignment::Center)
+                    .into()
+            };
+
+            let number_section_size = self.number_section_major_size(!apps.is_empty());
+            let number = container(self.core.applet.text(&w.name).font(cosmic::font::bold()))
+                .class(ContainerClass::Custom(Box::new(|_| {
+                    container::Style::default()
+                })));
+            let number: Element<'_, Message> = if horizontal {
+                number
+                    .width(Length::Fixed(number_section_size))
+                    .height(Length::Fill)
+            } else {
+                number
+                    .width(Length::Fill)
+                    .height(Length::Fixed(number_section_size))
+            }
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .into();
 
             let content: Element<'_, Message> = if apps.is_empty() {
                 number
@@ -891,11 +920,12 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .class(ContainerClass::Custom(Box::new(|_| {
                         container::Style::default()
                     })))
-                    .padding(if horizontal {
-                        [APP_GROUP_VERTICAL_PADDING, APP_GROUP_HORIZONTAL_PADDING]
-                    } else {
-                        [1.0, 3.0]
-                    })
+                    .padding(oriented_padding(
+                        self.layout,
+                        APP_GROUP_MAJOR_PADDING,
+                        APP_GROUP_MAJOR_PADDING,
+                        APP_GROUP_CROSS_AXIS_PADDING,
+                    ))
                     .into();
 
                 if horizontal {
@@ -915,8 +945,19 @@ impl cosmic::Application for IcedWorkspacesApplet {
                         .align_y(Alignment::Center)
                         .into()
                 } else {
-                    column![number, app_group]
-                        .spacing(0)
+                    let divider: Element<'_, Message> =
+                        container(space::horizontal().width(Length::Fixed(icon_size * 0.8)))
+                            .height(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
+                            .class(ContainerClass::Custom(Box::new(|theme| container::Style {
+                                background: Some(Background::Color(
+                                    theme.current_container().divider.into(),
+                                )),
+                                ..Default::default()
+                            })))
+                            .into();
+
+                    column![number, divider, app_group]
+                        .spacing(WORKSPACE_CONTENT_SPACING)
                         .align_x(Alignment::Center)
                         .into()
                 }
@@ -953,12 +994,13 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 })))
                 .width(Length::Fixed(width))
                 .height(Length::Fixed(height))
-                .padding(if horizontal && has_apps {
-                    Padding {
-                        left: WORKSPACE_LEADING_PADDING,
-                        right: WORKSPACE_TRAILING_PADDING,
-                        ..Padding::ZERO
-                    }
+                .padding(if has_apps {
+                    oriented_padding(
+                        self.layout,
+                        WORKSPACE_LEADING_PADDING,
+                        WORKSPACE_TRAILING_PADDING,
+                        0.0,
+                    )
                 } else {
                     Padding::ZERO
                 })
