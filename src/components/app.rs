@@ -25,7 +25,7 @@ use cosmic::{
         Length, Limits, Padding, Subscription, event,
         mouse::{self, ScrollDelta},
         platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup},
-        widget::{Image, Svg, button, column, row, space},
+        widget::{Image, Svg, button, column, row, space, stack},
         window,
     },
     scroll::DiscreteScrollState,
@@ -35,7 +35,7 @@ use cosmic::{
 };
 
 use crate::{
-    config::{self, WorkspacesAppletConfig},
+    config::{self, MAX_PILL_SPACING_PERCENT, WorkspacesAppletConfig},
     wayland::WorkspaceEvent,
     wayland_subscription::{WorkspacesUpdate, workspaces},
 };
@@ -56,12 +56,27 @@ const APP_ICON_SPACING: f32 = 3.0;
 const APP_GROUP_HORIZONTAL_PADDING: f32 = 6.0;
 const APP_GROUP_VERTICAL_PADDING: f32 = 2.0;
 const WORKSPACE_CONTENT_SPACING: f32 = 2.0;
+const WORKSPACE_BUTTON_SPACING: f32 = 4.0;
+const WORKSPACE_LIST_EDGE_PADDING: f32 = 2.0;
 const WORKSPACE_LEADING_PADDING: f32 = 5.0;
 const WORKSPACE_TRAILING_PADDING: f32 = 8.0;
 const WORKSPACE_DIVIDER_WIDTH: f32 = 1.0;
 const MINIMIZED_ICON_OPACITY: f32 = 0.45;
 const MAXIMIZED_HIGHLIGHT_SCALE: f32 = 1.28;
 const MAXIMIZED_ICON_GLOW_OPACITY: f32 = 0.24;
+const INACTIVE_PILL_BACKGROUND_OPACITY: f32 = 0.55;
+const INACTIVE_PILL_HOVER_BACKGROUND_OPACITY: f32 = 0.7;
+const DECREASE_ICON_SVG: &[u8] = br##"
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3" y="7" width="10" height="2" rx="1" fill="#000"/>
+</svg>
+"##;
+const INCREASE_ICON_SVG: &[u8] = br##"
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3" y="7" width="10" height="2" rx="1" fill="#000"/>
+  <rect x="7" y="3" width="2" height="10" rx="1" fill="#000"/>
+</svg>
+"##;
 
 pub fn run() -> cosmic::iced::Result {
     cosmic::applet::run::<IcedWorkspacesApplet>(())
@@ -71,6 +86,21 @@ pub fn run() -> cosmic::iced::Result {
 pub enum Layout {
     Row,
     Column,
+}
+
+fn workspace_list_padding(layout: Layout) -> Padding {
+    match layout {
+        Layout::Row => Padding {
+            right: WORKSPACE_LIST_EDGE_PADDING,
+            left: WORKSPACE_LIST_EDGE_PADDING,
+            ..Padding::ZERO
+        },
+        Layout::Column => Padding {
+            top: WORKSPACE_LIST_EDGE_PADDING,
+            bottom: WORKSPACE_LIST_EDGE_PADDING,
+            ..Padding::ZERO
+        },
+    }
 }
 
 struct IcedWorkspacesApplet {
@@ -87,6 +117,7 @@ struct IcedWorkspacesApplet {
     config: WorkspacesAppletConfig,
     config_helper: Option<Config>,
     popup: Option<window::Id>,
+    hovered_workspace: Option<ExtWorkspaceHandleV1>,
 }
 
 struct AppMetadata {
@@ -136,7 +167,94 @@ fn informative_titles<'a>(
     informative
 }
 
+fn pill_spacing_percent(value: u8) -> u8 {
+    value.min(MAX_PILL_SPACING_PERCENT)
+}
+
+fn symbolic_svg_icon(bytes: &'static [u8]) -> cosmic::widget::icon::Handle {
+    let mut handle = cosmic::widget::icon::from_svg_bytes(bytes);
+    handle.symbolic = true;
+    handle
+}
+
 impl IcedWorkspacesApplet {
+    fn pill_spacing_stepper(&self) -> Element<'_, Message> {
+        let value = self.config.pill_spacing_percent;
+        let decrement = cosmic::widget::button::icon(symbolic_svg_icon(DECREASE_ICON_SVG))
+            .on_press_maybe((value > 0).then(|| Message::PillSpacing(value.saturating_sub(1))));
+        let increment = cosmic::widget::button::icon(symbolic_svg_icon(INCREASE_ICON_SVG))
+            .on_press_maybe(
+                (value < MAX_PILL_SPACING_PERCENT).then(|| Message::PillSpacing(value + 1)),
+            );
+        let value = container(self.core.applet.text(format!("{value}%")).size(14))
+            .width(Length::Fixed(48.0))
+            .height(Length::Fixed(32.0))
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center);
+
+        row![decrement, value, increment]
+            .align_y(Alignment::Center)
+            .into()
+    }
+
+    fn workspace_pill_style(
+        theme: &Theme,
+        active: bool,
+        urgent: bool,
+        hovered: bool,
+    ) -> container::Style {
+        let cosmic = theme.cosmic();
+        let (background, text_color) = if active {
+            let component = &cosmic.accent_button;
+            (
+                Some(Background::Color(
+                    if hovered {
+                        component.hover
+                    } else {
+                        component.base
+                    }
+                    .into(),
+                )),
+                component.on.into(),
+            )
+        } else if urgent {
+            (
+                Some(Background::Color(
+                    if hovered {
+                        theme.current_container().component.hover
+                    } else {
+                        cosmic.palette.neutral_3
+                    }
+                    .into(),
+                )),
+                cosmic.destructive_button.base.into(),
+            )
+        } else {
+            let component = &theme.current_container().component;
+            let mut background = Color::from(component.hover);
+            background.a = if hovered {
+                INACTIVE_PILL_HOVER_BACKGROUND_OPACITY
+            } else {
+                INACTIVE_PILL_BACKGROUND_OPACITY
+            };
+            (
+                Some(Background::Color(background)),
+                component.on.into(),
+            )
+        };
+
+        container::Style {
+            background,
+            border: Border {
+                radius: cosmic.radius_xl().into(),
+                ..Default::default()
+            },
+            text_color: Some(text_color),
+            icon_color: Some(text_color),
+            ..Default::default()
+        }
+    }
+
     /// returns the index of the workspace button after which which must be moved to a popup
     /// if it exists.
     fn popup_index(&self) -> Option<usize> {
@@ -148,10 +266,10 @@ impl IcedWorkspacesApplet {
             }
         })?;
 
-        let mut used = 0.0;
+        let mut used = WORKSPACE_LIST_EDGE_PADDING * 2.0;
         for (index, workspace) in self.workspaces.iter().enumerate() {
             if index > 0 {
-                used += WORKSPACE_CONTENT_SPACING;
+                used += WORKSPACE_BUTTON_SPACING;
             }
             used += self.workspace_button_major_size(workspace);
             if used > max_major_axis_len as f32 {
@@ -438,7 +556,53 @@ impl IcedWorkspacesApplet {
 
 #[cfg(test)]
 mod tests {
-    use super::informative_titles;
+    use super::{
+        Background, Color, INACTIVE_PILL_BACKGROUND_OPACITY,
+        INACTIVE_PILL_HOVER_BACKGROUND_OPACITY, IcedWorkspacesApplet, Layout, Theme,
+        WORKSPACE_LIST_EDGE_PADDING, informative_titles, pill_spacing_percent,
+        workspace_list_padding,
+    };
+
+    #[test]
+    fn applies_outer_spacing_along_the_panel_axis() {
+        let horizontal = workspace_list_padding(Layout::Row);
+        assert_eq!(horizontal.left, WORKSPACE_LIST_EDGE_PADDING);
+        assert_eq!(horizontal.right, WORKSPACE_LIST_EDGE_PADDING);
+        assert_eq!(horizontal.top, 0.0);
+        assert_eq!(horizontal.bottom, 0.0);
+
+        let vertical = workspace_list_padding(Layout::Column);
+        assert_eq!(vertical.top, WORKSPACE_LIST_EDGE_PADDING);
+        assert_eq!(vertical.bottom, WORKSPACE_LIST_EDGE_PADDING);
+        assert_eq!(vertical.left, 0.0);
+        assert_eq!(vertical.right, 0.0);
+    }
+
+    #[test]
+    fn keeps_inactive_pill_background_when_not_hovered() {
+        let theme = Theme::default();
+        let style = IcedWorkspacesApplet::workspace_pill_style(&theme, false, false, false);
+
+        let Some(Background::Color(background)) = style.background else {
+            panic!("inactive pill should have a solid translucent background");
+        };
+        let mut expected = Color::from(theme.current_container().component.hover);
+        expected.a = INACTIVE_PILL_BACKGROUND_OPACITY;
+        assert_eq!(background, expected);
+    }
+
+    #[test]
+    fn gently_emphasizes_inactive_pill_background_when_hovered() {
+        let theme = Theme::default();
+        let style = IcedWorkspacesApplet::workspace_pill_style(&theme, false, false, true);
+
+        let Some(Background::Color(background)) = style.background else {
+            panic!("hovered inactive pill should have a solid translucent background");
+        };
+        let mut expected = Color::from(theme.current_container().component.hover);
+        expected.a = INACTIVE_PILL_HOVER_BACKGROUND_OPACITY;
+        assert_eq!(background, expected);
+    }
 
     #[test]
     fn hides_titles_that_repeat_the_application_name() {
@@ -456,6 +620,13 @@ mod tests {
             ["notes.txt", "README.md"]
         );
     }
+
+    #[test]
+    fn caps_pill_spacing_to_the_supported_range() {
+        assert_eq!(pill_spacing_percent(0), 0);
+        assert_eq!(pill_spacing_percent(10), 10);
+        assert_eq!(pill_spacing_percent(u8::MAX), 10);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -468,6 +639,10 @@ enum Message {
     PopupClosed(window::Id),
     DimMinimizedWindowIcons(bool),
     HighlightMaximizedWindowIcons(bool),
+    PillSpacing(u8),
+    WorkspaceHovered(ExtWorkspaceHandleV1),
+    WorkspaceUnhovered(ExtWorkspaceHandleV1),
+    WorkspaceHoverCleared,
     ConfigUpdated(WorkspacesAppletConfig),
     Surface(surface::Action),
 }
@@ -480,10 +655,18 @@ impl cosmic::Application for IcedWorkspacesApplet {
 
     fn init(core: cosmic::app::Core, _flags: Self::Flags) -> (Self, app::Task<Self::Message>) {
         let config_helper = Config::new(config::APP_ID, WorkspacesAppletConfig::VERSION).ok();
-        let config = config_helper
+        let mut config = config_helper
             .as_ref()
-            .and_then(|helper| WorkspacesAppletConfig::get_entry(helper).ok())
+            .map(|helper| {
+                WorkspacesAppletConfig::get_entry(helper).unwrap_or_else(|(errors, config)| {
+                    for err in errors {
+                        tracing::error!(?err, "failed to load workspaces applet config entry");
+                    }
+                    config
+                })
+            })
             .unwrap_or_default();
+        config.pill_spacing_percent = pill_spacing_percent(config.pill_spacing_percent);
 
         let mut app = Self {
             layout: match &core.applet.anchor {
@@ -502,6 +685,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
             config,
             config_helper,
             popup: None,
+            hovered_workspace: None,
         };
         app.update_desktop_entries();
 
@@ -599,7 +783,23 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config.highlight_maximized_window_icons = enabled;
                 self.write_config();
             }
-            Message::ConfigUpdated(config) => {
+            Message::PillSpacing(percent) => {
+                self.config.pill_spacing_percent = pill_spacing_percent(percent);
+                self.write_config();
+            }
+            Message::WorkspaceHovered(workspace) => {
+                self.hovered_workspace = Some(workspace);
+            }
+            Message::WorkspaceUnhovered(workspace) => {
+                if self.hovered_workspace.as_ref() == Some(&workspace) {
+                    self.hovered_workspace = None;
+                }
+            }
+            Message::WorkspaceHoverCleared => {
+                self.hovered_workspace = None;
+            }
+            Message::ConfigUpdated(mut config) => {
+                config.pill_spacing_percent = pill_spacing_percent(config.pill_spacing_percent);
                 self.config = config;
             }
             Message::Surface(a) => {
@@ -621,6 +821,8 @@ impl cosmic::Application for IcedWorkspacesApplet {
 
         let buttons = self.workspaces[..popup_index].iter().map(|w| {
             let horizontal = self.core.applet.is_horizontal();
+            let active = w.state.contains(ext_workspace_handle_v1::State::Active);
+            let urgent = w.state.contains(ext_workspace_handle_v1::State::Urgent);
             let apps = self.apps_for_workspace(w);
             let (width, height) = if horizontal {
                 (
@@ -720,103 +922,66 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 }
             };
 
-            let btn = button(
-                container(content)
-                    .class(ContainerClass::Custom(Box::new(|_| {
-                        container::Style::default()
-                    })))
-                    .width(Length::Fixed(width))
-                    .height(Length::Fixed(height))
-                    .padding(if horizontal && !apps.is_empty() {
-                        Padding {
-                            left: WORKSPACE_LEADING_PADDING,
-                            right: WORKSPACE_TRAILING_PADDING,
-                            ..Padding::ZERO
-                        }
-                    } else {
-                        Padding::ZERO
-                    })
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center),
+            let has_apps = !apps.is_empty();
+            let hovered = self.hovered_workspace.as_ref() == Some(&w.handle);
+            let pill_inset = if horizontal {
+                [height * f32::from(self.config.pill_spacing_percent) / 100.0, 0.0]
+            } else {
+                [0.0, width * f32::from(self.config.pill_spacing_percent) / 100.0]
+            };
+            let pill_background: Element<'_, Message> = container(
+                container(space::horizontal())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .class(ContainerClass::Custom(Box::new(move |theme| {
+                        Self::workspace_pill_style(theme, active, urgent, hovered)
+                    }))),
             )
+            .width(Length::Fixed(width))
+            .height(Length::Fixed(height))
+            .padding(pill_inset)
+            .into();
+
+            let pill_content: Element<'_, Message> = container(content)
+                .class(ContainerClass::Custom(Box::new(move |theme| {
+                    let pill_style = Self::workspace_pill_style(theme, active, urgent, hovered);
+                    container::Style {
+                        text_color: pill_style.text_color,
+                        icon_color: pill_style.icon_color,
+                        ..Default::default()
+                    }
+                })))
+                .width(Length::Fixed(width))
+                .height(Length::Fixed(height))
+                .padding(if horizontal && has_apps {
+                    Padding {
+                        left: WORKSPACE_LEADING_PADDING,
+                        right: WORKSPACE_TRAILING_PADDING,
+                        ..Padding::ZERO
+                    }
+                } else {
+                    Padding::ZERO
+                })
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .into();
+
+            let btn = button(
+                stack![pill_background, pill_content]
+                    .width(Length::Fixed(width))
+                    .height(Length::Fixed(height)),
+            )
+            .width(Length::Fixed(width))
+            .height(Length::Fixed(height))
             .on_press(
-                if w.state.contains(ext_workspace_handle_v1::State::Active) {
+                if active {
                     Message::WorkspaceOverview
                 } else {
                     Message::WorkspacePressed(w.handle.clone())
                 },
             )
-            .padding(0);
-
-            let has_apps = !apps.is_empty();
-            let btn = btn.class(
-                if w.state.contains(ext_workspace_handle_v1::State::Active) {
-                    cosmic::theme::iced::Button::Primary
-                } else if w.state.contains(ext_workspace_handle_v1::State::Urgent) {
-                    let appearance = |theme: &Theme| {
-                        let cosmic = theme.cosmic();
-                        button::Style {
-                            background: Some(Background::Color(cosmic.palette.neutral_3.into())),
-                            border: Border {
-                                radius: cosmic.radius_xl().into(),
-                                ..Default::default()
-                            },
-                            border_radius: theme.cosmic().radius_xl().into(),
-                            text_color: theme.cosmic().destructive_button.base.into(),
-                            ..button::Style::default()
-                        }
-                    };
-                    cosmic::theme::iced::Button::Custom(Box::new(
-                        move |theme, status| match status {
-                            button::Status::Active => appearance(theme),
-                            button::Status::Hovered => button::Style {
-                                background: Some(Background::Color(
-                                    theme.current_container().component.hover.into(),
-                                )),
-                                border: Border {
-                                    radius: theme.cosmic().radius_xl().into(),
-                                    ..Default::default()
-                                },
-                                ..appearance(theme)
-                            },
-                            button::Status::Pressed => appearance(theme),
-                            button::Status::Disabled => appearance(theme),
-                        },
-                    ))
-                } else {
-                    let appearance = move |theme: &Theme| {
-                        let cosmic = theme.cosmic();
-                        button::Style {
-                            background: has_apps.then(|| {
-                                Background::Color(theme.current_container().small_widget.into())
-                            }),
-                            border: Border {
-                                radius: cosmic.radius_xl().into(),
-                                ..Default::default()
-                            },
-                            border_radius: cosmic.radius_xl().into(),
-                            text_color: theme.current_container().component.on.into(),
-                            ..button::Style::default()
-                        }
-                    };
-                    cosmic::theme::iced::Button::Custom(Box::new(
-                        move |theme, status| match status {
-                            button::Status::Active => appearance(theme),
-                            button::Status::Hovered => button::Style {
-                                background: Some(Background::Color(
-                                    theme.current_container().component.hover.into(),
-                                )),
-                                border: Border {
-                                    radius: theme.cosmic().radius_xl().into(),
-                                    ..Default::default()
-                                },
-                                ..appearance(theme)
-                            },
-                            button::Status::Pressed | button::Status::Disabled => appearance(theme),
-                        },
-                    ))
-                },
-            );
+            .padding(0)
+            .class(cosmic::theme::iced::Button::Transparent);
 
             let workspace_button: Element<'_, Message> = if has_apps {
                 self.core
@@ -828,14 +993,16 @@ impl cosmic::Application for IcedWorkspacesApplet {
             };
 
             mouse_area(workspace_button)
+                .on_enter(Message::WorkspaceHovered(w.handle.clone()))
+                .on_exit(Message::WorkspaceUnhovered(w.handle.clone()))
                 .on_right_press(Message::TogglePopup)
                 .into()
         });
         // TODO if there is a popup_index, create a button with a popup for the remaining workspaces
         // Should it appear on hover or on click?
         let layout_section: Element<_> = match self.layout {
-            Layout::Row => row(buttons).spacing(4).into(),
-            Layout::Column => column(buttons).spacing(4).into(),
+            Layout::Row => row(buttons).spacing(WORKSPACE_BUTTON_SPACING).into(),
+            Layout::Column => column(buttons).spacing(WORKSPACE_BUTTON_SPACING).into(),
         };
         let mut limits = Limits::NONE.min_width(1.).min_height(1.);
         if let Some(b) = self.core.applet.suggested_bounds {
@@ -848,7 +1015,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
         }
 
         autosize::autosize(
-            container(layout_section).padding(0),
+            container(layout_section).padding(workspace_list_padding(self.layout)),
             AUTOSIZE_MAIN_ID.clone(),
         )
         .limits(limits)
@@ -868,6 +1035,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
             workspaces().map(Message::WorkspaceUpdate),
             event::listen_with(|e, _, _| match e {
                 Mouse(mouse::Event::WheelScrolled { delta }) => Some(Message::WheelScrolled(delta)),
+                Mouse(mouse::Event::CursorLeft) => Some(Message::WorkspaceHoverCleared),
                 _ => None,
             }),
         ])
@@ -892,7 +1060,21 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .label(crate::fl!("highlight-maximized-window-icons"))
                     .text_size(14)
                     .width(Length::Fill)
+            ),
+            padded_control(divider::horizontal::default())
+                .padding([spacing.space_xxs, spacing.space_s]),
+            padded_control(
+                row![
+                    self.core
+                        .applet
+                        .text(crate::fl!("pill-spacing"))
+                        .size(14),
+                    space::horizontal(),
+                    self.pill_spacing_stepper()
+                ]
+                .align_y(Alignment::Center)
             )
+            .padding([0, spacing.space_m])
         ]
         .align_x(Alignment::Start)
         .padding([8, 0]);
