@@ -18,7 +18,12 @@ use cosmic::{
     applet::{cosmic_panel_config::PanelAnchor, padded_control},
     cosmic_config::{Config, CosmicConfigEntry},
     desktop::{IconSourceExt, fde},
-    iced::core::{Background, Border, Color},
+    iced::core::{
+        Background, Border, Color, Rectangle, Size,
+        layout::{self as iced_layout, Layout as IcedLayout},
+        renderer,
+        widget::{Tree, Widget},
+    },
     iced::{
         Alignment,
         Event::Mouse,
@@ -129,6 +134,96 @@ fn oriented_padding(layout: Layout, leading: f32, trailing: f32, cross_axis: f32
     }
 }
 
+/// Draws one of two equivalent visual trees based directly on cursor position.
+///
+/// Keeping hover selection inside the widget avoids application-level enter/exit
+/// messages, which can be lost when sibling widgets capture the same cursor event.
+struct HoverSwitch<'a, Message> {
+    normal: Element<'a, Message>,
+    hovered: Element<'a, Message>,
+}
+
+impl<Message> Widget<Message, Theme, cosmic::Renderer> for HoverSwitch<'_, Message> {
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.normal), Tree::new(&self.hovered)]
+    }
+
+    fn diff(&mut self, tree: &mut Tree) {
+        tree.diff_children(&mut [&mut self.normal, &mut self.hovered]);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.normal.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.normal.as_widget().size_hint()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &cosmic::Renderer,
+        limits: &iced_layout::Limits,
+    ) -> iced_layout::Node {
+        let normal = self.normal.as_widget_mut().layout(
+            &mut tree.children[0],
+            renderer,
+            limits,
+        );
+        let hovered = self.hovered.as_widget_mut().layout(
+            &mut tree.children[1],
+            renderer,
+            limits,
+        );
+
+        iced_layout::Node::with_children(normal.size(), vec![normal, hovered])
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut cosmic::Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: IcedLayout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let hovered = cursor.is_over(layout.bounds());
+        let child_index = usize::from(hovered);
+        let child_layout = layout
+            .children()
+            .nth(child_index)
+            .expect("hover switch should have normal and hovered layouts");
+        let child = if hovered {
+            &self.hovered
+        } else {
+            &self.normal
+        };
+
+        child.as_widget().draw(
+            &tree.children[child_index],
+            renderer,
+            theme,
+            style,
+            child_layout,
+            cursor,
+            viewport,
+        );
+    }
+}
+
+fn hover_switch<'a, Message: 'a>(
+    normal: impl Into<Element<'a, Message>>,
+    hovered: impl Into<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    Element::new(HoverSwitch {
+        normal: normal.into(),
+        hovered: hovered.into(),
+    })
+}
+
 struct IcedWorkspacesApplet {
     core: cosmic::app::Core,
     workspaces: Vec<Workspace>,
@@ -144,7 +239,6 @@ struct IcedWorkspacesApplet {
     config_helper: Option<Config>,
     pill_style_model: segmented_button::SingleSelectModel,
     popup: Option<window::Id>,
-    hovered_workspace: Option<ExtWorkspaceHandleV1>,
 }
 
 struct AppMetadata {
@@ -776,6 +870,212 @@ impl IcedWorkspacesApplet {
             icon
         }
     }
+
+    fn workspace_pill_visual<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+        apps: &[WorkspaceApp<'_>],
+        width: f32,
+        height: f32,
+        hovered: bool,
+    ) -> Element<'a, Message> {
+        let horizontal = self.core.applet.is_horizontal();
+        let active = workspace
+            .state
+            .contains(ext_workspace_handle_v1::State::Active);
+        let urgent = workspace
+            .state
+            .contains(ext_workspace_handle_v1::State::Urgent);
+        let outlined_mode = self.config.pill_style == WorkspacePillStyle::Outlined;
+        let outlined_border_width = f32::from(self.config.pill_border_width);
+        let pill_cross_axis_inset = if horizontal {
+            height * f32::from(self.config.pill_spacing_percent) / 100.0
+        } else {
+            width * f32::from(self.config.pill_spacing_percent) / 100.0
+        };
+
+        let visible_app_count = apps.len().min(MAX_VISIBLE_APPS);
+        let icon_size = self.app_icon_size();
+        let mut icons = apps
+            .iter()
+            .take(visible_app_count)
+            .map(|app| {
+                self.app_icon(
+                    app.metadata,
+                    icon_size,
+                    self.config.dim_minimized_window_icons && app.all_minimized(),
+                    self.config.highlight_maximized_window_icons && app.has_maximized(),
+                )
+            })
+            .collect::<Vec<_>>();
+        if apps.len() > visible_app_count {
+            icons.push(
+                self.core
+                    .applet
+                    .text(format!("+{}", apps.len() - visible_app_count))
+                    .size((icon_size * 0.55).max(10.0))
+                    .into(),
+            );
+        }
+        let app_strip: Element<'_, Message> = if horizontal {
+            row(icons)
+                .spacing(APP_ICON_SPACING)
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            column(icons)
+                .spacing(APP_ICON_SPACING)
+                .align_x(Alignment::Center)
+                .into()
+        };
+
+        let number_section_size = self.number_section_major_size(!apps.is_empty());
+        let number_text = self
+            .core
+            .applet
+            .text(&workspace.name)
+            .font(cosmic::font::bold());
+        let number_text = if let Some(font_size) = workspace_number_font_size(icon_size) {
+            number_text.size(font_size)
+        } else {
+            number_text
+        }
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center();
+        let number = container(number_text).class(ContainerClass::Custom(Box::new(
+            move |theme| Self::workspace_number_style(theme, active, outlined_mode, hovered),
+        )));
+        let number: Element<'_, Message> = if horizontal {
+            number
+                .width(Length::Fixed(number_section_size))
+                .height(Length::Fill)
+        } else {
+            number
+                .width(Length::Fill)
+                .height(Length::Fixed(number_section_size))
+        }
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .into();
+
+        let content: Element<'_, Message> = if apps.is_empty() {
+            number
+        } else {
+            let app_group: Element<'_, Message> = container(app_strip)
+                .class(ContainerClass::Custom(Box::new(|_| {
+                    container::Style::default()
+                })))
+                .padding(oriented_padding(
+                    self.layout,
+                    APP_GROUP_LEADING_PADDING,
+                    APP_GROUP_TRAILING_PADDING,
+                    APP_GROUP_CROSS_AXIS_PADDING,
+                ))
+                .into();
+
+            if horizontal {
+                let divider: Element<'_, Message> =
+                    container(space::vertical().height(Length::Fixed(icon_size * 0.8)))
+                        .width(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
+                        .class(ContainerClass::Custom(Box::new(move |theme| {
+                            Self::workspace_divider_style(
+                                theme,
+                                active,
+                                outlined_mode,
+                                hovered,
+                            )
+                        })))
+                        .into();
+
+                row![number, divider, app_group]
+                    .spacing(WORKSPACE_CONTENT_SPACING)
+                    .align_y(Alignment::Center)
+                    .into()
+            } else {
+                let divider: Element<'_, Message> =
+                    container(space::horizontal().width(Length::Fixed(icon_size * 0.8)))
+                        .height(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
+                        .class(ContainerClass::Custom(Box::new(move |theme| {
+                            Self::workspace_divider_style(
+                                theme,
+                                active,
+                                outlined_mode,
+                                hovered,
+                            )
+                        })))
+                        .into();
+
+                column![number, divider, app_group]
+                    .spacing(WORKSPACE_CONTENT_SPACING)
+                    .align_x(Alignment::Center)
+                    .into()
+            }
+        };
+
+        let has_apps = !apps.is_empty();
+        let pill_background: Element<'_, Message> = container(
+            container(space::horizontal())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .class(ContainerClass::Custom(Box::new(move |theme| {
+                    Self::workspace_pill_style(
+                        theme,
+                        active,
+                        urgent,
+                        hovered,
+                        outlined_mode,
+                        outlined_border_width,
+                    )
+                }))),
+        )
+        .width(Length::Fixed(width))
+        .height(Length::Fixed(height))
+        .padding(oriented_padding(
+            self.layout,
+            0.0,
+            0.0,
+            pill_cross_axis_inset,
+        ))
+        .into();
+
+        let pill_content: Element<'_, Message> = container(content)
+            .class(ContainerClass::Custom(Box::new(move |theme| {
+                let pill_style = Self::workspace_pill_style(
+                    theme,
+                    active,
+                    urgent,
+                    hovered,
+                    outlined_mode,
+                    outlined_border_width,
+                );
+                container::Style {
+                    text_color: pill_style.text_color,
+                    icon_color: pill_style.icon_color,
+                    ..Default::default()
+                }
+            })))
+            .width(Length::Fixed(width))
+            .height(Length::Fixed(height))
+            .padding(if has_apps {
+                oriented_padding(
+                    self.layout,
+                    WORKSPACE_LEADING_PADDING,
+                    WORKSPACE_TRAILING_PADDING,
+                    0.0,
+                )
+            } else {
+                Padding::ZERO
+            })
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .into();
+
+        stack![pill_background, pill_content]
+            .width(Length::Fixed(width))
+            .height(Length::Fixed(height))
+            .into()
+    }
 }
 
 #[cfg(test)]
@@ -1101,9 +1401,6 @@ enum Message {
     PillStyle(segmented_button::Entity),
     PillBorderWidth(u8),
     PillSpacing(u8),
-    WorkspaceHovered(ExtWorkspaceHandleV1),
-    WorkspaceUnhovered(ExtWorkspaceHandleV1),
-    WorkspaceHoverCleared,
     ConfigUpdated(WorkspacesAppletConfig),
     Surface(surface::Action),
 }
@@ -1149,7 +1446,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
             config_helper,
             pill_style_model,
             popup: None,
-            hovered_workspace: None,
         };
         app.update_desktop_entries();
 
@@ -1266,17 +1562,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config.pill_spacing_percent = pill_spacing_percent(percent);
                 self.write_config();
             }
-            Message::WorkspaceHovered(workspace) => {
-                self.hovered_workspace = Some(workspace);
-            }
-            Message::WorkspaceUnhovered(workspace) => {
-                if self.hovered_workspace.as_ref() == Some(&workspace) {
-                    self.hovered_workspace = None;
-                }
-            }
-            Message::WorkspaceHoverCleared => {
-                self.hovered_workspace = None;
-            }
             Message::ConfigUpdated(mut config) => {
                 config.pill_border_width = pill_border_width(config.pill_border_width);
                 config.pill_spacing_percent = pill_spacing_percent(config.pill_spacing_percent);
@@ -1302,7 +1587,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
         let buttons = self.workspaces[..popup_index].iter().map(|w| {
             let horizontal = self.core.applet.is_horizontal();
             let active = w.state.contains(ext_workspace_handle_v1::State::Active);
-            let urgent = w.state.contains(ext_workspace_handle_v1::State::Urgent);
             let apps = self.apps_for_workspace(w);
             let major_size = self.workspace_button_major_size(w);
             let (width, height) = if horizontal {
@@ -1310,207 +1594,19 @@ impl cosmic::Application for IcedWorkspacesApplet {
             } else {
                 (suggested_window_size.0.get() as f32, major_size)
             };
-            let outlined_mode = self.config.pill_style == WorkspacePillStyle::Outlined;
-            let outlined_border_width = f32::from(self.config.pill_border_width);
-            let hovered = self.hovered_workspace.as_ref() == Some(&w.handle);
-            let pill_cross_axis_inset = if horizontal {
-                height * f32::from(self.config.pill_spacing_percent) / 100.0
-            } else {
-                width * f32::from(self.config.pill_spacing_percent) / 100.0
-            };
-
-            let visible_app_count = apps.len().min(MAX_VISIBLE_APPS);
-            let icon_size = self.app_icon_size();
-            let mut icons = apps
-                .iter()
-                .take(visible_app_count)
-                .map(|app| {
-                    self.app_icon(
-                        app.metadata,
-                        icon_size,
-                        self.config.dim_minimized_window_icons && app.all_minimized(),
-                        self.config.highlight_maximized_window_icons
-                            && app.has_maximized(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            if apps.len() > visible_app_count {
-                icons.push(
-                    self.core
-                        .applet
-                        .text(format!("+{}", apps.len() - visible_app_count))
-                        .size((icon_size * 0.55).max(10.0))
-                        .into(),
-                );
-            }
-            let app_strip: Element<'_, Message> = if horizontal {
-                row(icons)
-                    .spacing(APP_ICON_SPACING)
-                    .align_y(Alignment::Center)
-                    .into()
-            } else {
-                column(icons)
-                    .spacing(APP_ICON_SPACING)
-                    .align_x(Alignment::Center)
-                    .into()
-            };
-
-            let number_section_size = self.number_section_major_size(!apps.is_empty());
-            let number_text = self.core.applet.text(&w.name).font(cosmic::font::bold());
-            let number_text = if let Some(font_size) = workspace_number_font_size(icon_size) {
-                number_text.size(font_size)
-            } else {
-                number_text
-            }
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center();
-            let number = container(number_text).class(ContainerClass::Custom(Box::new(
-                move |theme| {
-                    Self::workspace_number_style(theme, active, outlined_mode, hovered)
-                },
-            )));
-            let number: Element<'_, Message> = if horizontal {
-                number
-                    .width(Length::Fixed(number_section_size))
-                    .height(Length::Fill)
-            } else {
-                number
-                    .width(Length::Fill)
-                    .height(Length::Fixed(number_section_size))
-            }
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center)
-            .into();
-
-            let content: Element<'_, Message> = if apps.is_empty() {
-                number
-            } else {
-                let app_group: Element<'_, Message> = container(app_strip)
-                    .class(ContainerClass::Custom(Box::new(|_| {
-                        container::Style::default()
-                    })))
-                    .padding(oriented_padding(
-                        self.layout,
-                        APP_GROUP_LEADING_PADDING,
-                        APP_GROUP_TRAILING_PADDING,
-                        APP_GROUP_CROSS_AXIS_PADDING,
-                    ))
-                    .into();
-
-                if horizontal {
-                    let divider: Element<'_, Message> =
-                        container(space::vertical().height(Length::Fixed(icon_size * 0.8)))
-                            .width(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
-                            .class(ContainerClass::Custom(Box::new(move |theme| {
-                                Self::workspace_divider_style(
-                                    theme,
-                                    active,
-                                    outlined_mode,
-                                    hovered,
-                                )
-                            })))
-                            .into();
-
-                    row![number, divider, app_group]
-                        .spacing(WORKSPACE_CONTENT_SPACING)
-                        .align_y(Alignment::Center)
-                        .into()
-                } else {
-                    let divider: Element<'_, Message> =
-                        container(space::horizontal().width(Length::Fixed(icon_size * 0.8)))
-                            .height(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
-                            .class(ContainerClass::Custom(Box::new(move |theme| {
-                                Self::workspace_divider_style(
-                                    theme,
-                                    active,
-                                    outlined_mode,
-                                    hovered,
-                                )
-                            })))
-                            .into();
-
-                    column![number, divider, app_group]
-                        .spacing(WORKSPACE_CONTENT_SPACING)
-                        .align_x(Alignment::Center)
-                        .into()
-                }
-            };
-
             let has_apps = !apps.is_empty();
-            let pill_background: Element<'_, Message> = container(
-                container(space::horizontal())
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .class(ContainerClass::Custom(Box::new(move |theme| {
-                        Self::workspace_pill_style(
-                            theme,
-                            active,
-                            urgent,
-                            hovered,
-                            outlined_mode,
-                            outlined_border_width,
-                        )
-                    }))),
-            )
-            .width(Length::Fixed(width))
-            .height(Length::Fixed(height))
-            .padding(oriented_padding(
-                self.layout,
-                0.0,
-                0.0,
-                pill_cross_axis_inset,
-            ))
-            .into();
-
-            let pill_content: Element<'_, Message> = container(content)
-                .class(ContainerClass::Custom(Box::new(move |theme| {
-                    let pill_style = Self::workspace_pill_style(
-                        theme,
-                        active,
-                        urgent,
-                        hovered,
-                        outlined_mode,
-                        outlined_border_width,
-                    );
-                    container::Style {
-                        text_color: pill_style.text_color,
-                        icon_color: pill_style.icon_color,
-                        ..Default::default()
-                    }
-                })))
+            let normal = self.workspace_pill_visual(w, &apps, width, height, false);
+            let hovered = self.workspace_pill_visual(w, &apps, width, height, true);
+            let btn = button(hover_switch(normal, hovered))
                 .width(Length::Fixed(width))
                 .height(Length::Fixed(height))
-                .padding(if has_apps {
-                    oriented_padding(
-                        self.layout,
-                        WORKSPACE_LEADING_PADDING,
-                        WORKSPACE_TRAILING_PADDING,
-                        0.0,
-                    )
-                } else {
-                    Padding::ZERO
-                })
-                .align_x(Alignment::Center)
-                .align_y(Alignment::Center)
-                .into();
-
-            let btn = button(
-                stack![pill_background, pill_content]
-                    .width(Length::Fixed(width))
-                    .height(Length::Fixed(height)),
-            )
-            .width(Length::Fixed(width))
-            .height(Length::Fixed(height))
-            .on_press(
-                if active {
+                .on_press(if active {
                     Message::WorkspaceOverview
                 } else {
                     Message::WorkspacePressed(w.handle.clone())
-                },
-            )
-            .padding(0)
-            .class(cosmic::theme::iced::Button::Transparent);
+                })
+                .padding(0)
+                .class(cosmic::theme::iced::Button::Transparent);
 
             let workspace_button: Element<'_, Message> = if has_apps {
                 let tooltip = self.workspace_tooltip(&apps);
@@ -1523,8 +1619,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
             };
 
             mouse_area(workspace_button)
-                .on_enter(Message::WorkspaceHovered(w.handle.clone()))
-                .on_exit(Message::WorkspaceUnhovered(w.handle.clone()))
                 .on_right_press(Message::TogglePopup)
                 .into()
         });
@@ -1565,7 +1659,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
             workspaces().map(Message::WorkspaceUpdate),
             event::listen_with(|e, _, _| match e {
                 Mouse(mouse::Event::WheelScrolled { delta }) => Some(Message::WheelScrolled(delta)),
-                Mouse(mouse::Event::CursorLeft) => Some(Message::WorkspaceHoverCleared),
                 _ => None,
             }),
         ])
