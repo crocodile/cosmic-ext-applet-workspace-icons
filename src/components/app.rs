@@ -1279,7 +1279,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 width * f32::from(self.config.pill_spacing_percent) / 100.0
             };
 
-            let tooltip = self.workspace_tooltip(&apps);
             let visible_app_count = apps.len().min(MAX_VISIBLE_APPS);
             let icon_size = self.app_icon_size();
             let mut icons = apps
@@ -1474,6 +1473,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
             .class(cosmic::theme::iced::Button::Transparent);
 
             let workspace_button: Element<'_, Message> = if has_apps {
+                let tooltip = self.workspace_tooltip(&apps);
                 self.core
                     .applet
                     .applet_tooltip(btn, tooltip, false, Message::Surface, None)
