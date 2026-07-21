@@ -17,6 +17,7 @@
     "--talk-name=com.system76.CosmicSettingsDaemon",
     "--talk-name=com.system76.CosmicSettingsDaemon.Config",
     "--talk-name=com.system76.CosmicSettingsDaemon.Config.*",
+    "--talk-name=org.freedesktop.Flatpak",
     "--filesystem=xdg-config/cosmic:rw",
     "--filesystem=host-os:ro",
     "--filesystem=/opt:ro",

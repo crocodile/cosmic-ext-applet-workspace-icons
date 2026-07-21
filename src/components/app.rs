@@ -202,6 +202,30 @@ fn pill_border_width(value: u8) -> u8 {
     value.clamp(MIN_PILL_BORDER_WIDTH, MAX_PILL_BORDER_WIDTH)
 }
 
+fn workspace_overview_command(flatpak: bool) -> (&'static str, &'static [&'static str]) {
+    if flatpak {
+        ("flatpak-spawn", &["--host", "cosmic-workspaces"])
+    } else {
+        ("cosmic-workspaces", &[])
+    }
+}
+
+fn launch_workspace_overview() {
+    let flatpak =
+        std::env::var_os("FLATPAK_ID").is_some() || std::path::Path::new("/.flatpak-info").exists();
+    let (program, args) = workspace_overview_command(flatpak);
+
+    match ShellCommand::new(program).args(args).spawn() {
+        Ok(mut child) => {
+            // Reap the launcher without blocking the applet's event loop.
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(err) => tracing::error!(?err, program, "failed to launch workspace overview"),
+    }
+}
+
 fn occupied_number_section_major_size(base_size: f32, icon_size: f32) -> f32 {
     let preferred_size = (base_size * 0.65).max(20.0);
     preferred_size.min(icon_size.max(28.0))
@@ -763,7 +787,7 @@ mod tests {
         WORKSPACE_CONTENT_SPACING, WORKSPACE_LEADING_PADDING, WORKSPACE_LIST_EDGE_PADDING,
         WORKSPACE_TRAILING_PADDING, informative_titles, occupied_number_section_major_size,
         oriented_padding, pill_border_width, pill_spacing_percent, workspace_list_padding,
-        workspace_number_font_size,
+        workspace_number_font_size, workspace_overview_command,
     };
 
     const TEST_OUTLINED_BORDER_WIDTH: f32 = 2.0;
@@ -1029,6 +1053,22 @@ mod tests {
     }
 
     #[test]
+    fn launches_the_overview_directly_outside_flatpak() {
+        assert_eq!(
+            workspace_overview_command(false),
+            ("cosmic-workspaces", &[][..])
+        );
+    }
+
+    #[test]
+    fn launches_the_host_overview_from_flatpak() {
+        assert_eq!(
+            workspace_overview_command(true),
+            ("flatpak-spawn", &["--host", "cosmic-workspaces"][..])
+        );
+    }
+
+    #[test]
     fn gives_workspace_numbers_more_room_as_icons_grow() {
         let small = occupied_number_section_major_size(40.0, 20.8);
         let large = occupied_number_section_major_size(64.0, 33.28);
@@ -1175,7 +1215,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 }
             }
             Message::WorkspaceOverview => {
-                let _ = ShellCommand::new("cosmic-workspaces").spawn();
+                launch_workspace_overview();
             }
             Message::TogglePopup => {
                 return if let Some(popup) = self.popup.take() {
