@@ -8,10 +8,14 @@
     <name>crocodile</name>
   </developer>
   <name>Workspace Icons</name>
+  <name xml:lang="cs">Ikony pracovních ploch</name>
   <summary>Show app icons beside COSMIC workspaces</summary>
+  <summary xml:lang="cs">Zobrazuje ikony aplikací vedle pracovních ploch COSMIC</summary>
   <description>
     <p>Workspace Icons adds application icons to the COSMIC panel's numbered workspaces, so you can see where your windows are at a glance.</p>
+    <p xml:lang="cs">Applet „Ikony pracovních ploch“ přidává ikony aplikací k číslovaným pracovním plochám panelu COSMIC, takže na první pohled uvidíte, kde se nacházejí vaše okna.</p>
     <p>It keeps the normal workspace switching, scrolling, and overview behavior while adding compact indicators for open, minimized, and maximized windows.</p>
+    <p xml:lang="cs">Zachovává běžné přepínání pracovních ploch, rolování i chování přehledu a zároveň přidává kompaktní indikátory otevřených, minimalizovaných a maximalizovaných oken.</p>
   </description>
   <screenshots>
     <screenshot type="default">
@@ -45,6 +49,14 @@
     <screenshot>
       <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-store-8.png</image>
       <caption>Application icons shown beside workspace numbers in the COSMIC panel.</caption>
+      <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-panel-1.png</image>
+      <caption>Application icons shown beside workspace numbers in the COSMIC panel.</caption>
+      <caption xml:lang="cs">Ikony aplikací zobrazené vedle čísel pracovních ploch v panelu COSMIC.</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-panel-2.png</image>
+      <caption>Settings for dimming minimized windows and highlighting maximized windows.</caption>
+      <caption xml:lang="cs">Nastavení pro ztlumení minimalizovaných oken a zvýraznění maximalizovaných oken.</caption>
     </screenshot>
   </screenshots>
   <launchable type="desktop-id">io.github.crocodile.cosmic-ext-applet-workspace-icons.desktop</launchable>
@@ -73,6 +85,9 @@
     <keyword>Workspaces</keyword>
     <keyword>Icons</keyword>
     <keyword>Panel</keyword>
+    <keyword xml:lang="cs">Pracovní plocha</keyword>
+    <keyword xml:lang="cs">Pracovní plochy</keyword>
+    <keyword xml:lang="cs">Ikony</keyword>
   </keywords>
   <releases>
     <release type="stable" version="1.1.1" date="2026-07-21">
