@@ -6,11 +6,15 @@ number so you can see where windows are at a glance.
 
 ## Screenshots
 
-<img src="resources/screenshots/workspace-icons-panel-1.png" alt="Workspace Icons applet showing app icons beside workspace numbers" />
+<img src="resources/screenshots/workspace-icons-store-8.png" alt="Workspace Icons applet showing application icons beside workspace numbers" />
 
-<br>
+<br />
 
-<img src="resources/screenshots/workspace-icons-panel-2.png" alt="Workspace Icons settings popover for icon display options" />
+<img src="resources/screenshots/workspace-icons-store-5.png" alt="Workspace Icons settings popover with filled workspace pills" />
+
+<br />
+
+<img src="resources/screenshots/workspace-icons-store-2.png" alt="Outlined workspace pills with application names shown on hover" />
 
 ## Features
 
