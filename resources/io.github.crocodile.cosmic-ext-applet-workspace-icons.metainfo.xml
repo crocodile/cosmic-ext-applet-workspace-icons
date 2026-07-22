@@ -49,14 +49,7 @@
     <screenshot>
       <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-store-8.png</image>
       <caption>Application icons shown beside workspace numbers in the COSMIC panel.</caption>
-      <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-panel-1.png</image>
-      <caption>Application icons shown beside workspace numbers in the COSMIC panel.</caption>
       <caption xml:lang="cs">Ikony aplikací zobrazené vedle čísel pracovních ploch v panelu COSMIC.</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://raw.githubusercontent.com/crocodile/cosmic-ext-applet-workspace-icons/main/resources/screenshots/workspace-icons-panel-2.png</image>
-      <caption>Settings for dimming minimized windows and highlighting maximized windows.</caption>
-      <caption xml:lang="cs">Nastavení pro ztlumení minimalizovaných oken a zvýraznění maximalizovaných oken.</caption>
     </screenshot>
   </screenshots>
   <launchable type="desktop-id">io.github.crocodile.cosmic-ext-applet-workspace-icons.desktop</launchable>
