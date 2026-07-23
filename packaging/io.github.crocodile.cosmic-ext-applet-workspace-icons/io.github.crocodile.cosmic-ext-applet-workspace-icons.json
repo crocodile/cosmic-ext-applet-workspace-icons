@@ -17,6 +17,7 @@
     "--talk-name=com.system76.CosmicSettingsDaemon",
     "--talk-name=com.system76.CosmicSettingsDaemon.Config",
     "--talk-name=com.system76.CosmicSettingsDaemon.Config.*",
+    "--talk-name=org.freedesktop.Flatpak",
     "--filesystem=xdg-config/cosmic:rw",
     "--filesystem=host-os:ro",
     "--filesystem=/opt:ro",
@@ -55,7 +56,7 @@
         {
           "type": "git",
           "url": "https://github.com/crocodile/cosmic-ext-applet-workspace-icons.git",
-          "commit": "7bcb4939fe0e868d5be5ca66110119dbd0d40f37"
+          "commit": "8ec0750b836f7008616493912d0fa3c963a74f24"
         },
         {
           "type": "file",

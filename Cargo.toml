@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-ext-applet-workspace-icons"
-version = "1.0.2"
+version = "1.1.1"
 edition = "2024"
 license = "GPL-3.0-only"
 description = "COSMIC panel applet showing application icons on workspaces"

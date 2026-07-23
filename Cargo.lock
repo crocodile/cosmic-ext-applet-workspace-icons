@@ -909,7 +909,7 @@ dependencies = [
 [[package]]
 name = "cosmic-config"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "atomicwrites",
  "cosmic-config-derive",
@@ -930,7 +930,7 @@ dependencies = [
 [[package]]
 name = "cosmic-config-derive"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "quote",
  "syn",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-ext-applet-workspace-icons"
-version = "1.0.2"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "cosmic-client-toolkit",
@@ -972,7 +972,7 @@ dependencies = [
 [[package]]
 name = "cosmic-panel-config"
 version = "0.1.0"
-source = "git+https://github.com/pop-os/cosmic-panel#45f03a3864a9385349be3ca13202553280e667d4"
+source = "git+https://github.com/pop-os/cosmic-panel#82b76c9b01d2697bc10d62b6c511c26cc6cc8e8f"
 dependencies = [
  "anyhow",
  "cosmic-config",
@@ -1000,7 +1000,7 @@ dependencies = [
 [[package]]
 name = "cosmic-settings-config"
 version = "0.1.0"
-source = "git+https://github.com/pop-os/cosmic-settings-daemon#24ab5c28eb5876665752cd5e9405b7de17e2b99a"
+source = "git+https://github.com/pop-os/cosmic-settings-daemon#e6ca13522a64227371bbd39bcfdffab3bb34d9b3"
 dependencies = [
  "cosmic-config",
  "ron 0.11.0",
@@ -1045,7 +1045,7 @@ dependencies = [
 [[package]]
 name = "cosmic-theme"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "almost",
  "configparser",
@@ -1376,7 +1376,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dpi"
 version = "0.1.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 
 [[package]]
 name = "drm"
@@ -2199,7 +2199,7 @@ dependencies = [
 [[package]]
 name = "iced"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "dnd",
  "iced_accessibility",
@@ -2220,7 +2220,7 @@ dependencies = [
 [[package]]
 name = "iced_accessibility"
 version = "0.1.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -2229,7 +2229,7 @@ dependencies = [
 [[package]]
 name = "iced_core"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "bitflags 2.13.0",
  "bytes",
@@ -2254,7 +2254,7 @@ dependencies = [
 [[package]]
 name = "iced_debug"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -2264,7 +2264,7 @@ dependencies = [
 [[package]]
 name = "iced_futures"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "futures",
  "iced_core",
@@ -2278,7 +2278,7 @@ dependencies = [
 [[package]]
 name = "iced_graphics"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -2299,7 +2299,7 @@ dependencies = [
 [[package]]
 name = "iced_program"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "iced_graphics",
  "iced_runtime",
@@ -2308,7 +2308,7 @@ dependencies = [
 [[package]]
 name = "iced_renderer"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "iced_graphics",
  "iced_tiny_skia",
@@ -2320,7 +2320,7 @@ dependencies = [
 [[package]]
 name = "iced_runtime"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "bytes",
  "cosmic-client-toolkit",
@@ -2335,7 +2335,7 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -2352,7 +2352,7 @@ dependencies = [
 [[package]]
 name = "iced_wgpu"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "as-raw-xcb-connection",
  "bitflags 2.13.0",
@@ -2383,7 +2383,7 @@ dependencies = [
 [[package]]
 name = "iced_widget"
 version = "0.14.2"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "cosmic-client-toolkit",
  "dnd",
@@ -2401,7 +2401,7 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.14.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "cosmic-client-toolkit",
  "cursor-icon",
@@ -2869,7 +2869,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 [[package]]
 name = "libcosmic"
 version = "1.0.0"
-source = "git+https://github.com/pop-os/libcosmic#ee5d965983957271cf759fd76e3e4eed4f188d35"
+source = "git+https://github.com/pop-os/libcosmic#d9b2b38bf4dc8f2af3d7dc7be9fa296ab75c3170"
 dependencies = [
  "apply",
  "ashpd 0.12.3",
@@ -6294,7 +6294,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 [[package]]
 name = "winit"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "bitflags 2.13.0",
  "cfg_aliases",
@@ -6320,7 +6320,7 @@ dependencies = [
 [[package]]
 name = "winit-android"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "android-activity",
  "bitflags 2.13.0",
@@ -6335,7 +6335,7 @@ dependencies = [
 [[package]]
 name = "winit-appkit"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "bitflags 2.13.0",
  "block2 0.6.2",
@@ -6357,7 +6357,7 @@ dependencies = [
 [[package]]
 name = "winit-common"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "memmap2 0.9.11",
  "objc2 0.6.4",
@@ -6372,7 +6372,7 @@ dependencies = [
 [[package]]
 name = "winit-core"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "bitflags 2.13.0",
  "cursor-icon",
@@ -6386,7 +6386,7 @@ dependencies = [
 [[package]]
 name = "winit-orbital"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "bitflags 2.13.0",
  "dpi",
@@ -6402,7 +6402,7 @@ dependencies = [
 [[package]]
 name = "winit-uikit"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "bitflags 2.13.0",
  "block2 0.6.2",
@@ -6422,7 +6422,7 @@ dependencies = [
 [[package]]
 name = "winit-wayland"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "ahash",
  "bitflags 2.13.0",
@@ -6448,7 +6448,7 @@ dependencies = [
 [[package]]
 name = "winit-web"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "atomic-waker",
  "bitflags 2.13.0",
@@ -6470,7 +6470,7 @@ dependencies = [
 [[package]]
 name = "winit-win32"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "bitflags 2.13.0",
  "cursor-icon",
@@ -6486,7 +6486,7 @@ dependencies = [
 [[package]]
 name = "winit-x11"
 version = "0.31.0-beta.2"
-source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#f737f1f5900b3399b56951305b0f155afc9c9ee5"
+source = "git+https://github.com/pop-os/winit.git?tag=cosmic-0.14#71ce08c043814514a8fd92d9d0599f115ae854e8"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -6575,7 +6575,7 @@ checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 [[package]]
 name = "xdg-shell-wrapper-config"
 version = "0.1.0"
-source = "git+https://github.com/pop-os/cosmic-panel#45f03a3864a9385349be3ca13202553280e667d4"
+source = "git+https://github.com/pop-os/cosmic-panel#82b76c9b01d2697bc10d62b6c511c26cc6cc8e8f"
 dependencies = [
  "serde",
  "wayland-protocols-wlr",
