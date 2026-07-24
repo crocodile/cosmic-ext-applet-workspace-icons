@@ -29,7 +29,6 @@ use cosmic::{
         Event::Mouse,
         Length, Limits, Padding, Subscription, event,
         mouse::{self, ScrollDelta},
-        platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup},
         widget::{Image, Svg, button, column, row, space, stack},
         window,
     },
@@ -1515,19 +1514,23 @@ impl cosmic::Application for IcedWorkspacesApplet {
             }
             Message::TogglePopup => {
                 return if let Some(popup) = self.popup.take() {
-                    destroy_popup(popup)
+                    surface::surface_task(surface::action::destroy_popup(popup))
                 } else {
-                    let popup = window::Id::unique();
-                    self.popup.replace(popup);
-                    let popup_settings = self.core.applet.get_popup_settings(
-                        self.core.main_window_id().unwrap(),
-                        popup,
-                        Some((1, 1)),
+                    surface::surface_task(surface::action::app_popup(
+                        |_| Default::default(),
+                        |app: &mut Self| {
+                            let popup = window::Id::unique();
+                            app.popup.replace(popup);
+                            app.core.applet.get_popup_settings(
+                                app.core.main_window_id().unwrap(),
+                                popup,
+                                Some((1, 1)),
+                                None,
+                                None,
+                            )
+                        },
                         None,
-                        None,
-                    );
-
-                    get_popup(popup_settings)
+                    ))
                 };
             }
             Message::PopupClosed(id) => {
