@@ -54,6 +54,7 @@ use crate::{
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    path::Path,
     process::Command as ShellCommand,
     sync::LazyLock,
     time::Duration,
@@ -508,6 +509,37 @@ fn pill_style_model(style: WorkspacePillStyle) -> segmented_button::SingleSelect
     model
 }
 
+/// The file extensions icon theme directories recognize for icon files.
+const ICON_FILE_EXTENSIONS: &[&str] = &["png", "svg", "svgz", "jpg", "jpeg", "xpm", "ico"];
+
+/// Derive an icon-theme name from an icon value that names or points to a file,
+/// such as `/home/user/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png`.
+/// Plain names without a file extension pass through unchanged.
+fn icon_theme_name(icon: &str) -> &str {
+    let file_name = Path::new(icon)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(icon);
+    match file_name.rsplit_once('.') {
+        Some((stem, extension))
+            if ICON_FILE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) =>
+        {
+            stem
+        }
+        _ => file_name,
+    }
+}
+
+/// Resolve a desktop entry's `Icon` value to an icon source, falling back to a
+/// theme icon name when the value is a file path that cannot be loaded, such as
+/// a sandboxed applet without access to the application's install prefix.
+fn icon_source(icon: &str) -> fde::IconSource {
+    match fde::IconSource::from_unknown(icon) {
+        fde::IconSource::Name(name) => fde::IconSource::Name(icon_theme_name(&name).to_string()),
+        source => source,
+    }
+}
+
 impl IcedWorkspacesApplet {
     fn pill_border_width_stepper(&self) -> Element<'_, Message> {
         let value = self.config.pill_border_width;
@@ -921,8 +953,7 @@ impl IcedWorkspacesApplet {
             .full_name(&self.locales)
             .unwrap_or(Cow::Borrowed(&desktop_entry.appid))
             .into_owned();
-        let icon_source =
-            fde::IconSource::from_unknown(desktop_entry.icon().unwrap_or(&desktop_entry.appid));
+        let icon_source = icon_source(desktop_entry.icon().unwrap_or(&desktop_entry.appid));
 
         AppMetadata { name, icon_source }
     }
@@ -1282,9 +1313,9 @@ mod tests {
         IcedWorkspacesApplet, Layout, MAX_INACTIVE_PILL_CONTRAST_PERCENT, MAX_PILL_BORDER_WIDTH,
         MIN_PILL_BORDER_WIDTH, Theme, URGENT_FILLED_BORDER_WIDTH, WORKSPACE_CONTENT_SPACING,
         WORKSPACE_LEADING_PADDING, WORKSPACE_LIST_EDGE_PADDING, WORKSPACE_TRAILING_PADDING,
-        AppMetadata, WorkspaceApp, WorkspaceWindowState, display_icons,
-        inactive_pill_contrast_color, inactive_pill_contrast_percent, informative_titles,
-        occupied_number_section_major_size, oriented_padding, pill_border_width,
+        AppMetadata, WorkspaceApp, WorkspaceWindowState, display_icons, fde, icon_source,
+        icon_theme_name, inactive_pill_contrast_color, inactive_pill_contrast_percent,
+        informative_titles, occupied_number_section_major_size, oriented_padding, pill_border_width,
         pill_spacing_percent, should_retain_toplevel_placement, visible_icon_counts,
         visible_icon_limit, workspace_list_padding, workspace_number_font_size,
         workspace_overview_command, workspace_tooltip,
@@ -1310,6 +1341,44 @@ mod tests {
             name: name.to_owned(),
             icon_source: cosmic::desktop::fde::IconSource::from_unknown(name),
         }
+    }
+
+    #[test]
+    fn derives_theme_icon_name_from_absolute_path() {
+        assert_eq!(
+            icon_theme_name("/home/user/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png",),
+            "zed",
+        );
+    }
+
+    #[test]
+    fn derives_theme_icon_name_from_relative_image_path() {
+        assert_eq!(icon_theme_name("images/zed.svg"), "zed");
+        assert_eq!(icon_theme_name("./zed.png"), "zed");
+    }
+
+    #[test]
+    fn keeps_plain_icon_names_unchanged() {
+        assert_eq!(icon_theme_name("zed"), "zed");
+        assert_eq!(icon_theme_name("org.gnome.Weather"), "org.gnome.Weather");
+        assert_eq!(
+            icon_theme_name("application-x-executable"),
+            "application-x-executable",
+        );
+    }
+
+    #[test]
+    fn falls_back_to_theme_name_for_unloadable_icon_paths() {
+        let source =
+            icon_source("/home/user/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png");
+        assert_eq!(source, fde::IconSource::Name("zed".to_string()));
+    }
+
+    #[test]
+    fn keeps_loadable_absolute_paths_as_paths() {
+        let existing = std::env::current_dir().expect("current directory");
+        let source = icon_source(existing.to_str().expect("utf-8 path"));
+        assert!(matches!(source, fde::IconSource::Path(_)));
     }
 
     #[test]
