@@ -238,6 +238,7 @@ struct IcedWorkspacesApplet {
     config: WorkspacesAppletConfig,
     config_helper: Option<Config>,
     pill_style_model: segmented_button::SingleSelectModel,
+    inactive_pill_style_model: segmented_button::SingleSelectModel,
     popup: Option<window::Id>,
 }
 
@@ -508,6 +509,26 @@ fn pill_style_model(style: WorkspacePillStyle) -> segmented_button::SingleSelect
     model
 }
 
+fn inactive_pill_style_model(style: WorkspacePillStyle) -> segmented_button::SingleSelectModel {
+    let mut model: segmented_button::SingleSelectModel = segmented_button::Model::builder()
+        .insert(|button| {
+            button
+                .text(crate::fl!("pill-style-filled"))
+                .data(WorkspacePillStyle::Filled)
+        })
+        .insert(|button| {
+            button
+                .text(crate::fl!("pill-style-outlined"))
+                .data(WorkspacePillStyle::Outlined)
+        })
+        .build();
+    model.activate_position(match style {
+        WorkspacePillStyle::Filled => 0,
+        WorkspacePillStyle::Outlined => 1,
+    });
+    model
+}
+
 impl IcedWorkspacesApplet {
     fn pill_border_width_stepper(&self) -> Element<'_, Message> {
         let value = self.config.pill_border_width;
@@ -618,18 +639,27 @@ impl IcedWorkspacesApplet {
             });
     }
 
+    fn sync_inactive_pill_style_model(&mut self) {
+        self.inactive_pill_style_model
+            .activate_position(match self.config.inactive_pill_style {
+                WorkspacePillStyle::Filled => 0,
+                WorkspacePillStyle::Outlined => 1,
+            });
+    }
+
     fn workspace_pill_style(
         theme: &Theme,
         active: bool,
         urgent: bool,
         hovered: bool,
-        outlined_mode: bool,
+        pill_style: WorkspacePillStyle,
+        inactive_pill_style: WorkspacePillStyle,
         outlined_border_width: f32,
         inactive_contrast_percent: u8,
     ) -> container::Style {
         let cosmic = theme.cosmic();
         let urgent = urgent && !active;
-        let (background, text_color, border_color, border_width) = if active && outlined_mode {
+        let (background, text_color, border_color, border_width) = if active && pill_style == WorkspacePillStyle::Outlined {
             let component = &cosmic.accent_button;
             let border_color = Color::from(if hovered {
                 component.hover
@@ -670,10 +700,10 @@ impl IcedWorkspacesApplet {
             });
             let destructive = cosmic.destructive_button.base.into();
             (
-                (!outlined_mode || hovered).then_some(Background::Color(color)),
+                (pill_style != WorkspacePillStyle::Outlined || hovered).then_some(Background::Color(color)),
                 destructive,
                 destructive,
-                if outlined_mode {
+                if pill_style == WorkspacePillStyle::Outlined {
                     outlined_border_width
                 } else {
                     URGENT_FILLED_BORDER_WIDTH
@@ -693,14 +723,14 @@ impl IcedWorkspacesApplet {
                 inactive_pill_contrast_percent(inactive_contrast_percent, hovered),
             );
             (
-                (!outlined_mode || hovered).then_some(Background::Color(background)),
+                (inactive_pill_style == WorkspacePillStyle::Filled || hovered).then_some(Background::Color(background)),
                 component.on.into(),
-                if outlined_mode {
+                if inactive_pill_style == WorkspacePillStyle::Outlined {
                     background
                 } else {
                     Color::TRANSPARENT
                 },
-                if outlined_mode {
+                if inactive_pill_style == WorkspacePillStyle::Outlined {
                     outlined_border_width
                 } else {
                     0.0
@@ -708,7 +738,7 @@ impl IcedWorkspacesApplet {
             )
         };
 
-        let border_color = if outlined_mode && hovered && !urgent {
+        let border_color = if pill_style == WorkspacePillStyle::Outlined && hovered && !urgent {
             match background.as_ref() {
                 Some(Background::Color(color)) => *color,
                 _ => border_color,
@@ -716,7 +746,7 @@ impl IcedWorkspacesApplet {
         } else {
             border_color
         };
-        let border_width = if outlined_mode && hovered && !urgent {
+        let border_width = if pill_style == WorkspacePillStyle::Outlined && hovered && !urgent {
             0.0
         } else {
             border_width
@@ -739,10 +769,10 @@ impl IcedWorkspacesApplet {
     fn workspace_number_style(
         theme: &Theme,
         active: bool,
-        outlined_mode: bool,
+        pill_style: WorkspacePillStyle,
         hovered: bool,
     ) -> container::Style {
-        if !active || !outlined_mode {
+        if !active || pill_style != WorkspacePillStyle::Outlined {
             return container::Style::default();
         }
 
@@ -756,10 +786,10 @@ impl IcedWorkspacesApplet {
         theme: &Theme,
         active: bool,
         urgent: bool,
-        outlined_mode: bool,
+        pill_style: WorkspacePillStyle,
         hovered: bool,
     ) -> container::Style {
-        let color = if active && outlined_mode {
+        let color = if active && pill_style == WorkspacePillStyle::Outlined {
             Self::outlined_active_foreground(theme, hovered)
         } else if urgent && !active {
             theme.cosmic().destructive_button.base.into()
@@ -1074,7 +1104,8 @@ impl IcedWorkspacesApplet {
         let urgent = workspace
             .state
             .contains(ext_workspace_handle_v1::State::Urgent);
-        let outlined_mode = self.config.pill_style == WorkspacePillStyle::Outlined;
+        let pill_style = self.config.pill_style;
+        let inactive_pill_style = self.config.inactive_pill_style;
         let outlined_border_width = f32::from(self.config.pill_border_width);
         let pill_cross_axis_inset = if horizontal {
             height * f32::from(self.config.pill_spacing_percent) / 100.0
@@ -1133,7 +1164,7 @@ impl IcedWorkspacesApplet {
         .height(Length::Fill)
         .center();
         let number = container(number_text).class(ContainerClass::Custom(Box::new(
-            move |theme| Self::workspace_number_style(theme, active, outlined_mode, hovered),
+            move |theme| Self::workspace_number_style(theme, active, pill_style, hovered),
         )));
         let number: Element<'_, Message> = if horizontal {
             number
@@ -1172,7 +1203,7 @@ impl IcedWorkspacesApplet {
                                 theme,
                                 active,
                                 urgent,
-                                outlined_mode,
+                                pill_style,
                                 hovered,
                             )
                         })))
@@ -1191,7 +1222,7 @@ impl IcedWorkspacesApplet {
                                 theme,
                                 active,
                                 urgent,
-                                outlined_mode,
+                                pill_style,
                                 hovered,
                             )
                         })))
@@ -1215,7 +1246,8 @@ impl IcedWorkspacesApplet {
                         active,
                         urgent,
                         hovered,
-                        outlined_mode,
+                        pill_style,
+                        inactive_pill_style,
                         outlined_border_width,
                         self.config.inactive_pill_contrast_percent,
                     )
@@ -1238,7 +1270,8 @@ impl IcedWorkspacesApplet {
                     active,
                     urgent,
                     hovered,
-                    outlined_mode,
+                    pill_style,
+                    inactive_pill_style,
                     outlined_border_width,
                     self.config.inactive_pill_contrast_percent,
                 );
@@ -1275,6 +1308,7 @@ impl IcedWorkspacesApplet {
 mod tests {
     use crate::config::{
         DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT, MAX_VISIBLE_ICONS, MIN_VISIBLE_ICONS,
+        WorkspacePillStyle,
     };
 
     use super::{
@@ -1419,14 +1453,16 @@ mod tests {
         active: bool,
         urgent: bool,
         hovered: bool,
-        outlined_mode: bool,
+        active_pill_style: WorkspacePillStyle,
+        inactive_pill_style: WorkspacePillStyle,
     ) -> cosmic::widget::container::Style {
         IcedWorkspacesApplet::workspace_pill_style(
             theme,
             active,
             urgent,
             hovered,
-            outlined_mode,
+            active_pill_style,
+            inactive_pill_style,
             TEST_OUTLINED_BORDER_WIDTH,
             DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
         )
@@ -1444,7 +1480,8 @@ mod tests {
     fn test_pill_style_with_contrast(
         theme: &Theme,
         hovered: bool,
-        outlined_mode: bool,
+        active_pill_style: WorkspacePillStyle,
+        inactive_pill_style: WorkspacePillStyle,
         contrast_percent: u8,
     ) -> cosmic::widget::container::Style {
         IcedWorkspacesApplet::workspace_pill_style(
@@ -1452,7 +1489,8 @@ mod tests {
             false,
             false,
             hovered,
-            outlined_mode,
+            active_pill_style,
+            inactive_pill_style,
             TEST_OUTLINED_BORDER_WIDTH,
             contrast_percent,
         )
@@ -1500,7 +1538,14 @@ mod tests {
     #[test]
     fn keeps_inactive_pill_background_when_not_hovered() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, false, false, false, false);
+        let style = test_pill_style(
+            &theme,
+            false,
+            false,
+            false,
+            WorkspacePillStyle::Filled,
+            WorkspacePillStyle::Filled,
+        );
 
         let Some(Background::Color(background)) = style.background else {
             panic!("inactive pill should have a solid opaque background");
@@ -1519,7 +1564,14 @@ mod tests {
     #[test]
     fn gently_emphasizes_inactive_pill_background_when_hovered() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, false, false, true, false);
+        let style = test_pill_style(
+            &theme,
+            false,
+            false,
+            true,
+            WorkspacePillStyle::Filled,
+            WorkspacePillStyle::Filled,
+        );
 
         let Some(Background::Color(background)) = style.background else {
             panic!("hovered inactive pill should have a solid opaque background");
@@ -1537,7 +1589,14 @@ mod tests {
     #[test]
     fn outlines_inactive_pills_in_outlined_mode() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, false, false, false, true);
+        let style = test_pill_style(
+            &theme,
+            false,
+            false,
+            false,
+            WorkspacePillStyle::Filled,
+            WorkspacePillStyle::Outlined,
+        );
 
         let container = theme.current_container();
         let component = &container.component;
@@ -1566,7 +1625,8 @@ mod tests {
                 active,
                 urgent,
                 hovered,
-                true,
+                WorkspacePillStyle::Outlined,
+                WorkspacePillStyle::Outlined,
                 3.0,
                 DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
             );
@@ -1577,7 +1637,14 @@ mod tests {
     #[test]
     fn fills_inactive_outlined_pills_on_hover() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, false, false, true, true);
+        let style = test_pill_style(
+            &theme,
+            false,
+            false,
+            true,
+            WorkspacePillStyle::Filled,
+            WorkspacePillStyle::Outlined,
+        );
 
         let component = &theme.current_container().component;
         let expected = inactive_pill_contrast_color(
@@ -1596,14 +1663,24 @@ mod tests {
         let container = theme.current_container();
         let component = &container.component;
 
-        for outlined_mode in [false, true] {
+        for outlined_mode in [WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined] {
             for (configured, resting_contrast, hovered_contrast) in
                 [(55, 55, 70), (90, 90, 100), (0, 0, 15)]
             {
-                let resting =
-                    test_pill_style_with_contrast(&theme, false, outlined_mode, configured);
-                let hovered =
-                    test_pill_style_with_contrast(&theme, true, outlined_mode, configured);
+                let resting = test_pill_style_with_contrast(
+                    &theme,
+                    false,
+                    WorkspacePillStyle::Filled,
+                    outlined_mode,
+                    configured,
+                );
+                let hovered = test_pill_style_with_contrast(
+                    &theme,
+                    true,
+                    WorkspacePillStyle::Filled,
+                    outlined_mode,
+                    configured,
+                );
 
                 let resting_color = inactive_pill_contrast_color(
                     container.base,
@@ -1616,14 +1693,14 @@ mod tests {
                     hovered_contrast,
                 );
 
-                if outlined_mode {
+                if outlined_mode == WorkspacePillStyle::Outlined {
                     assert_eq!(resting.background, None);
                     assert_eq!(resting.border.color, resting_color);
                 } else {
                     assert_eq!(resting.background, Some(Background::Color(resting_color)));
                 }
                 assert_eq!(hovered.background, Some(Background::Color(hovered_color)));
-                if outlined_mode {
+                if outlined_mode == WorkspacePillStyle::Outlined {
                     assert_eq!(hovered.border.color, hovered_color);
                 }
                 assert_eq!(resting_color.a, 1.0);
@@ -1674,16 +1751,17 @@ mod tests {
         let theme = Theme::default();
 
         for (active, urgent, hovered, outlined_mode) in [
-            (true, false, false, false),
-            (true, false, true, true),
-            (false, true, false, false),
-            (false, true, true, true),
+            (true, false, false, WorkspacePillStyle::Filled),
+            (true, false, true, WorkspacePillStyle::Outlined),
+            (false, true, false, WorkspacePillStyle::Filled),
+            (false, true, true, WorkspacePillStyle::Outlined),
         ] {
             let minimum_contrast = IcedWorkspacesApplet::workspace_pill_style(
                 &theme,
                 active,
                 urgent,
                 hovered,
+                outlined_mode,
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
                 0,
@@ -1693,6 +1771,7 @@ mod tests {
                 active,
                 urgent,
                 hovered,
+                outlined_mode,
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
                 100,
@@ -1706,8 +1785,22 @@ mod tests {
     fn matches_nonurgent_hovered_outlined_borders_to_their_backgrounds() {
         let theme = Theme::default();
         let styles = [
-            test_pill_style(&theme, true, false, true, true),
-            test_pill_style(&theme, false, false, true, true),
+            test_pill_style(
+                &theme,
+                true,
+                false,
+                true,
+                WorkspacePillStyle::Outlined,
+                WorkspacePillStyle::Outlined,
+            ),
+            test_pill_style(
+                &theme,
+                false,
+                false,
+                true,
+                WorkspacePillStyle::Filled,
+                WorkspacePillStyle::Outlined,
+            ),
         ];
 
         for style in styles {
@@ -1723,7 +1816,14 @@ mod tests {
         let theme = Theme::default();
 
         for (active, urgent) in [(true, false), (false, false)] {
-            let style = test_pill_style(&theme, active, urgent, true, true);
+            let style = test_pill_style(
+                &theme,
+                active,
+                urgent,
+                true,
+                WorkspacePillStyle::Outlined,
+                WorkspacePillStyle::Outlined,
+            );
             assert!(style.background.is_some());
             assert_eq!(style.border.width, 0.0);
         }
@@ -1734,16 +1834,23 @@ mod tests {
         let theme = Theme::default();
         let destructive = Color::from(theme.cosmic().destructive_button.base);
 
-        for outlined_mode in [false, true] {
+        for outlined_mode in [WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined] {
             for hovered in [false, true] {
-                let style = test_pill_style(&theme, false, true, hovered, outlined_mode);
+                let style = test_pill_style(
+                    &theme,
+                    false,
+                    true,
+                    hovered,
+                    WorkspacePillStyle::Filled,
+                    outlined_mode,
+                );
 
                 assert_eq!(style.text_color, Some(destructive));
                 assert_eq!(style.icon_color, Some(destructive));
                 assert_eq!(style.border.color, destructive);
                 assert_eq!(
                     style.border.width,
-                    if outlined_mode {
+                    if outlined_mode == WorkspacePillStyle::Outlined {
                         TEST_OUTLINED_BORDER_WIDTH
                     } else {
                         URGENT_FILLED_BORDER_WIDTH
@@ -1756,7 +1863,14 @@ mod tests {
     #[test]
     fn restores_the_full_opacity_active_pill_when_outlined_mode_is_disabled() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, true, false, false, false);
+        let style = test_pill_style(
+            &theme,
+            true,
+            false,
+            false,
+            WorkspacePillStyle::Filled,
+            WorkspacePillStyle::Filled,
+        );
 
         assert_eq!(
             style.background,
@@ -1768,7 +1882,14 @@ mod tests {
     #[test]
     fn keeps_the_full_opacity_active_pill_when_hovered() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, true, false, true, false);
+        let style = test_pill_style(
+            &theme,
+            true,
+            false,
+            true,
+            WorkspacePillStyle::Filled,
+            WorkspacePillStyle::Filled,
+        );
 
         assert_eq!(
             style.background,
@@ -1780,7 +1901,14 @@ mod tests {
     #[test]
     fn uses_an_accent_outline_in_outlined_mode() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, true, false, false, true);
+        let style = test_pill_style(
+            &theme,
+            true,
+            false,
+            false,
+            WorkspacePillStyle::Outlined,
+            WorkspacePillStyle::Filled,
+        );
 
         assert_eq!(style.background, None);
         assert_eq!(style.border.color, theme.cosmic().accent_button.base.into());
@@ -1790,7 +1918,14 @@ mod tests {
     #[test]
     fn fills_the_active_outlined_pill_on_hover() {
         let theme = Theme::default();
-        let style = test_pill_style(&theme, true, false, true, true);
+        let style = test_pill_style(
+            &theme,
+            true,
+            false,
+            true,
+            WorkspacePillStyle::Outlined,
+            WorkspacePillStyle::Filled,
+        );
 
         let expected = Color::from(theme.cosmic().accent_button.hover);
         assert_eq!(style.background, Some(Background::Color(expected)));
@@ -1802,7 +1937,7 @@ mod tests {
     #[test]
     fn gives_the_active_number_an_accent_text_color_in_outlined_mode() {
         let theme = Theme::default();
-        let style = IcedWorkspacesApplet::workspace_number_style(&theme, true, true, false);
+        let style = IcedWorkspacesApplet::workspace_number_style(&theme, true, WorkspacePillStyle::Outlined, false);
         let expected = theme
             .cosmic()
             .accent_text
@@ -1814,7 +1949,7 @@ mod tests {
     #[test]
     fn gives_the_active_number_on_accent_text_when_hovered() {
         let theme = Theme::default();
-        let style = IcedWorkspacesApplet::workspace_number_style(&theme, true, true, true);
+        let style = IcedWorkspacesApplet::workspace_number_style(&theme, true, WorkspacePillStyle::Outlined, true);
 
         assert_eq!(style.text_color, Some(theme.cosmic().accent_button.on.into()));
     }
@@ -1823,7 +1958,7 @@ mod tests {
     fn gives_the_active_divider_an_accent_color_in_outlined_mode() {
         let theme = Theme::default();
         let style =
-            IcedWorkspacesApplet::workspace_divider_style(&theme, true, false, true, false);
+            IcedWorkspacesApplet::workspace_divider_style(&theme, true, false, WorkspacePillStyle::Outlined, false);
         let expected = theme
             .cosmic()
             .accent_text
@@ -1836,7 +1971,7 @@ mod tests {
     fn gives_the_active_divider_an_on_accent_color_when_hovered() {
         let theme = Theme::default();
         let style =
-            IcedWorkspacesApplet::workspace_divider_style(&theme, true, false, true, true);
+            IcedWorkspacesApplet::workspace_divider_style(&theme, true, false, WorkspacePillStyle::Outlined, true);
 
         assert_eq!(
             style.background,
@@ -1948,6 +2083,7 @@ enum Message {
     ShowOneIconPerApplication(bool),
     MaxVisibleIcons(u8),
     PillStyle(segmented_button::Entity),
+    InactivePillStyle(segmented_button::Entity),
     PillBorderWidth(u8),
     PillSpacing(u8),
     InactivePillContrast(u8),
@@ -1979,6 +2115,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
         config.inactive_pill_contrast_percent =
             inactive_pill_contrast_percent(config.inactive_pill_contrast_percent, false);
         let pill_style_model = pill_style_model(config.pill_style);
+        let inactive_pill_style_model = inactive_pill_style_model(config.inactive_pill_style);
 
         let mut app = Self {
             layout: match &core.applet.anchor {
@@ -1997,6 +2134,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
             config,
             config_helper,
             pill_style_model,
+            inactive_pill_style_model,
             popup: None,
         };
         app.update_desktop_entries();
@@ -2122,6 +2260,17 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     self.write_config();
                 }
             }
+            Message::InactivePillStyle(entity) => {
+                if let Some(style) = self
+                    .inactive_pill_style_model
+                    .data::<WorkspacePillStyle>(entity)
+                    .copied()
+                {
+                    self.inactive_pill_style_model.activate(entity);
+                    self.config.inactive_pill_style = style;
+                    self.write_config();
+                }
+            }
             Message::PillBorderWidth(width) => {
                 self.config.pill_border_width = pill_border_width(width);
                 self.write_config();
@@ -2143,6 +2292,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     inactive_pill_contrast_percent(config.inactive_pill_contrast_percent, false);
                 self.config = config;
                 self.sync_pill_style_model();
+                self.sync_inactive_pill_style_model();
             }
             Message::Surface(a) => {
                 return cosmic::task::message(cosmic::Action::Cosmic(
@@ -2264,7 +2414,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
         .class(ContainerClass::Custom(Box::new(Self::subtle_version_style)));
 
         let outline_thickness: Element<'_, Message> =
-            if self.config.pill_style == WorkspacePillStyle::Outlined {
+            if self.config.pill_style == WorkspacePillStyle::Outlined || self.config.inactive_pill_style == WorkspacePillStyle::Outlined {
                 row![
                     self.core
                         .applet
@@ -2320,7 +2470,15 @@ impl cosmic::Application for IcedWorkspacesApplet {
                         self.core.applet.text(crate::fl!("pill-style")).size(14),
                         segmented_control::horizontal(&self.pill_style_model)
                             .width(Length::Fill)
-                            .on_activate(Message::PillStyle),
+                            .on_activate(Message::PillStyle)
+                    ]
+                    .spacing(spacing.space_xxs)
+                    .align_x(Alignment::Start),
+                    column![
+                        self.core.applet.text(crate::fl!("inactive-pill-style")).size(14),
+                        segmented_control::horizontal(&self.inactive_pill_style_model)
+                            .width(Length::Fill)
+                            .on_activate(Message::InactivePillStyle),
                         outline_thickness
                     ]
                     .spacing(spacing.space_xxs)
