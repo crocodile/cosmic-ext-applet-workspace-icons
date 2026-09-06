@@ -626,6 +626,7 @@ impl IcedWorkspacesApplet {
         outlined_mode: bool,
         outlined_border_width: f32,
         inactive_contrast_percent: u8,
+        show_inactive_pill_background: bool,
     ) -> container::Style {
         let cosmic = theme.cosmic();
         let urgent = urgent && !active;
@@ -693,7 +694,7 @@ impl IcedWorkspacesApplet {
                 inactive_pill_contrast_percent(inactive_contrast_percent, hovered),
             );
             (
-                (!outlined_mode || hovered).then_some(Background::Color(background)),
+                ((show_inactive_pill_background && !outlined_mode) || hovered).then_some(Background::Color(background)),
                 component.on.into(),
                 if outlined_mode {
                     background
@@ -1218,6 +1219,7 @@ impl IcedWorkspacesApplet {
                         outlined_mode,
                         outlined_border_width,
                         self.config.inactive_pill_contrast_percent,
+                        self.config.show_inactive_pill_background,
                     )
                 }))),
         )
@@ -1241,6 +1243,7 @@ impl IcedWorkspacesApplet {
                     outlined_mode,
                     outlined_border_width,
                     self.config.inactive_pill_contrast_percent,
+                    self.config.show_inactive_pill_background,
                 );
                 container::Style {
                     text_color: pill_style.text_color,
@@ -1429,6 +1432,7 @@ mod tests {
             outlined_mode,
             TEST_OUTLINED_BORDER_WIDTH,
             DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
+            true,
         )
     }
 
@@ -1455,6 +1459,7 @@ mod tests {
             outlined_mode,
             TEST_OUTLINED_BORDER_WIDTH,
             contrast_percent,
+            true,
         )
     }
 
@@ -1569,6 +1574,7 @@ mod tests {
                 true,
                 3.0,
                 DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
+                true,
             );
             assert_eq!(style.border.width, 3.0);
         }
@@ -1687,6 +1693,7 @@ mod tests {
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
                 0,
+                true,
             );
             let maximum_contrast = IcedWorkspacesApplet::workspace_pill_style(
                 &theme,
@@ -1696,6 +1703,7 @@ mod tests {
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
                 100,
+                true,
             );
 
             assert_eq!(minimum_contrast, maximum_contrast);
@@ -1953,6 +1961,7 @@ enum Message {
     InactivePillContrast(u8),
     ConfigUpdated(WorkspacesAppletConfig),
     Surface(surface::Action),
+    ShowInactivePillBackground(bool),
 }
 
 impl cosmic::Application for IcedWorkspacesApplet {
@@ -2149,6 +2158,10 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     cosmic::app::Action::Surface(a),
                 ));
             }
+            Message::ShowInactivePillBackground(enabled) => {
+                self.config.show_inactive_pill_background = enabled;
+                self.write_config();
+            }
         }
         Task::none()
     }
@@ -2279,6 +2292,18 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 space::vertical().height(Length::Fixed(0.0)).into()
             };
 
+        let show_inactive_pill_background: Element<'_, Message> =
+            if self.config.pill_style == WorkspacePillStyle::Filled {
+                toggler(self.config.show_inactive_pill_background)
+                    .on_toggle(Message::ShowInactivePillBackground)
+                    .label(crate::fl!("show-inactive-pill-background"))
+                    .text_size(14)
+                    .width(Length::Fill).into()
+            } else {
+                space::vertical().height(Length::Fixed(0.0)).into()
+            };
+
+
         let content = column![
             padded_control(
                 toggler(self.config.dim_minimized_window_icons)
@@ -2342,7 +2367,11 @@ impl cosmic::Application for IcedWorkspacesApplet {
                         space::horizontal(),
                         self.inactive_pill_contrast_stepper()
                     ]
-                    .align_y(Alignment::Center)
+                    .align_y(Alignment::Center),
+                    row! [
+                        show_inactive_pill_background
+                    ]
+                    .align_y(Alignment::Center),
                 ]
                 .spacing(spacing.space_xxs)
                 .align_x(Alignment::Start)

@@ -10,3 +10,4 @@ pill-outline-thickness = Outline thickness
 pill-spacing = Pill spacing
 inactive-pill-contrast = Inactive pill contrast
 version = Version
+show-inactive-pill-background = Show inactive pill background
