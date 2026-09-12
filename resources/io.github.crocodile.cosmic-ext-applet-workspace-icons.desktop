@@ -1,8 +1,10 @@
 [Desktop Entry]
 Name=Workspace Icons
 Name[cs]=Ikony pracovních ploch
+Name[pl]=Ikony Obszarów Roboczych
 Comment=Show application icons on COSMIC workspaces
 Comment[cs]=Zobrazuje ikony aplikací na pracovních plochách COSMIC
+Comment[pl]=Pokazuje ikony aplikacji na obszarach roboczych COSMIC
 Type=Application
 Exec=cosmic-ext-applet-workspace-icons
 Terminal=false
