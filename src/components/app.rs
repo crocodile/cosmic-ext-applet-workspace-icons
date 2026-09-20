@@ -92,6 +92,13 @@ const INCREASE_ICON_SVG: &[u8] = br##"
 </svg>
 "##;
 
+#[derive(Debug, Clone, Copy)]
+enum PillStyleSelection {
+    Filled,
+    Outlined,
+    Mixed,
+}
+
 pub fn run() -> cosmic::iced::Result {
     cosmic::applet::run::<IcedWorkspacesApplet>(())
 }
@@ -238,7 +245,6 @@ struct IcedWorkspacesApplet {
     config: WorkspacesAppletConfig,
     config_helper: Option<Config>,
     pill_style_model: segmented_button::SingleSelectModel,
-    inactive_pill_style_model: segmented_button::SingleSelectModel,
     popup: Option<window::Id>,
 }
 
@@ -489,43 +495,33 @@ fn symbolic_svg_icon(bytes: &'static [u8]) -> cosmic::widget::icon::Handle {
     handle
 }
 
-fn pill_style_model(style: WorkspacePillStyle) -> segmented_button::SingleSelectModel {
+fn pill_style_model(active_pill_style: WorkspacePillStyle, inactive_pill_style: WorkspacePillStyle) -> segmented_button::SingleSelectModel {
     let mut model: segmented_button::SingleSelectModel = segmented_button::Model::builder()
         .insert(|button| {
             button
                 .text(crate::fl!("pill-style-filled"))
-                .data(WorkspacePillStyle::Filled)
+                .data(PillStyleSelection::Filled)
         })
         .insert(|button| {
             button
                 .text(crate::fl!("pill-style-outlined"))
-                .data(WorkspacePillStyle::Outlined)
+                .data(PillStyleSelection::Outlined)
+        })
+        .insert(|button| {
+            button
+                .text(crate::fl!("pill-style-mixed"))
+                .data(PillStyleSelection::Mixed)
         })
         .build();
-    model.activate_position(match style {
-        WorkspacePillStyle::Filled => 0,
-        WorkspacePillStyle::Outlined => 1,
-    });
-    model
-}
 
-fn inactive_pill_style_model(style: WorkspacePillStyle) -> segmented_button::SingleSelectModel {
-    let mut model: segmented_button::SingleSelectModel = segmented_button::Model::builder()
-        .insert(|button| {
-            button
-                .text(crate::fl!("pill-style-filled"))
-                .data(WorkspacePillStyle::Filled)
-        })
-        .insert(|button| {
-            button
-                .text(crate::fl!("pill-style-outlined"))
-                .data(WorkspacePillStyle::Outlined)
-        })
-        .build();
-    model.activate_position(match style {
-        WorkspacePillStyle::Filled => 0,
-        WorkspacePillStyle::Outlined => 1,
-    });
+
+    let selected = match (active_pill_style, inactive_pill_style) {
+        (WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined) => 2,
+        (WorkspacePillStyle::Outlined, _) => 1,
+        _ => 0,
+    };
+
+    model.activate_position(selected);
     model
 }
 
@@ -633,17 +629,10 @@ impl IcedWorkspacesApplet {
 
     fn sync_pill_style_model(&mut self) {
         self.pill_style_model
-            .activate_position(match self.config.pill_style {
-                WorkspacePillStyle::Filled => 0,
-                WorkspacePillStyle::Outlined => 1,
-            });
-    }
-
-    fn sync_inactive_pill_style_model(&mut self) {
-        self.inactive_pill_style_model
-            .activate_position(match self.config.inactive_pill_style {
-                WorkspacePillStyle::Filled => 0,
-                WorkspacePillStyle::Outlined => 1,
+            .activate_position(match (self.config.pill_style, self.config.inactive_pill_style) {
+                (WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined) => 2,
+                (WorkspacePillStyle::Outlined, _) => 1,
+                _ => 0,
             });
     }
 
@@ -2083,7 +2072,6 @@ enum Message {
     ShowOneIconPerApplication(bool),
     MaxVisibleIcons(u8),
     PillStyle(segmented_button::Entity),
-    InactivePillStyle(segmented_button::Entity),
     PillBorderWidth(u8),
     PillSpacing(u8),
     InactivePillContrast(u8),
@@ -2114,8 +2102,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
         config.max_visible_icons = visible_icon_limit(config.max_visible_icons);
         config.inactive_pill_contrast_percent =
             inactive_pill_contrast_percent(config.inactive_pill_contrast_percent, false);
-        let pill_style_model = pill_style_model(config.pill_style);
-        let inactive_pill_style_model = inactive_pill_style_model(config.inactive_pill_style);
+        let pill_style_model = pill_style_model(config.pill_style, config.inactive_pill_style);
 
         let mut app = Self {
             layout: match &core.applet.anchor {
@@ -2134,7 +2121,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
             config,
             config_helper,
             pill_style_model,
-            inactive_pill_style_model,
             popup: None,
         };
         app.update_desktop_entries();
@@ -2252,22 +2238,25 @@ impl cosmic::Application for IcedWorkspacesApplet {
             Message::PillStyle(entity) => {
                 if let Some(style) = self
                     .pill_style_model
-                    .data::<WorkspacePillStyle>(entity)
+                    .data::<PillStyleSelection>(entity)
                     .copied()
                 {
                     self.pill_style_model.activate(entity);
-                    self.config.pill_style = style;
-                    self.write_config();
-                }
-            }
-            Message::InactivePillStyle(entity) => {
-                if let Some(style) = self
-                    .inactive_pill_style_model
-                    .data::<WorkspacePillStyle>(entity)
-                    .copied()
-                {
-                    self.inactive_pill_style_model.activate(entity);
-                    self.config.inactive_pill_style = style;
+
+                    match style {
+                        PillStyleSelection::Filled => {
+                            self.config.pill_style = WorkspacePillStyle::Filled;
+                            self.config.inactive_pill_style = WorkspacePillStyle::Filled;
+                        }
+                        PillStyleSelection::Outlined => {
+                            self.config.pill_style = WorkspacePillStyle::Outlined;
+                            self.config.inactive_pill_style = WorkspacePillStyle::Outlined;
+                        }
+                        PillStyleSelection::Mixed => {
+                            self.config.pill_style = WorkspacePillStyle::Filled;
+                            self.config.inactive_pill_style = WorkspacePillStyle::Outlined;
+                        }
+                    }
                     self.write_config();
                 }
             }
@@ -2292,7 +2281,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     inactive_pill_contrast_percent(config.inactive_pill_contrast_percent, false);
                 self.config = config;
                 self.sync_pill_style_model();
-                self.sync_inactive_pill_style_model();
             }
             Message::Surface(a) => {
                 return cosmic::task::message(cosmic::Action::Cosmic(
@@ -2470,16 +2458,9 @@ impl cosmic::Application for IcedWorkspacesApplet {
                         self.core.applet.text(crate::fl!("pill-style")).size(14),
                         segmented_control::horizontal(&self.pill_style_model)
                             .width(Length::Fill)
-                            .on_activate(Message::PillStyle)
-                    ]
-                    .spacing(spacing.space_xxs)
-                    .align_x(Alignment::Start),
-                    column![
-                        self.core.applet.text(crate::fl!("inactive-pill-style")).size(14),
-                        segmented_control::horizontal(&self.inactive_pill_style_model)
-                            .width(Length::Fill)
-                            .on_activate(Message::InactivePillStyle),
+                            .on_activate(Message::PillStyle),
                         outline_thickness
+
                     ]
                     .spacing(spacing.space_xxs)
                     .align_x(Alignment::Start),
