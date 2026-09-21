@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use cosmic_config::{
-    Config, ConfigGet, CosmicConfigEntry, Error, cosmic_config_derive::CosmicConfigEntry,
+    Config, CosmicConfigEntry, Error, cosmic_config_derive::CosmicConfigEntry,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +30,7 @@ pub enum WorkspacePillStyle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, CosmicConfigEntry)]
-#[version = 3]
+#[version = 4]
 #[serde(default)]
 pub struct WorkspacesAppletConfig {
     pub dim_minimized_window_icons: bool,
@@ -41,7 +41,6 @@ pub struct WorkspacesAppletConfig {
     pub inactive_pill_style: WorkspacePillStyle,
     pub pill_border_width: u8,
     pub pill_spacing_percent: u8,
-    pub inactive_pill_contrast_percent: u8,
 }
 
 impl Default for WorkspacesAppletConfig {
@@ -55,14 +54,13 @@ impl Default for WorkspacesAppletConfig {
             inactive_pill_style: WorkspacePillStyle::Filled,
             pill_border_width: DEFAULT_PILL_BORDER_WIDTH,
             pill_spacing_percent: 0,
-            inactive_pill_contrast_percent: DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
         }
     }
 }
 
 impl WorkspacesAppletConfig {
     pub fn load(config: &Config) -> (Self, Vec<Error>) {
-        let (mut entry, mut errors) = match Self::get_entry(config) {
+        match Self::get_entry(config) {
             Ok(entry) => (entry, Vec::new()),
             Err((errors, entry)) => (entry, errors),
         };
@@ -111,11 +109,11 @@ impl WorkspacesAppletConfig {
 #[cfg(test)]
 mod tests {
     use super::{
-        APP_ID, DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT, DEFAULT_PILL_BORDER_WIDTH,
-        DEFAULT_VISIBLE_ICONS, MAX_INACTIVE_PILL_CONTRAST_PERCENT, WorkspacePillStyle,
+        APP_ID, DEFAULT_PILL_BORDER_WIDTH,
+        DEFAULT_VISIBLE_ICONS, WorkspacePillStyle,
         WorkspacesAppletConfig,
     };
-    use cosmic_config::{Config, ConfigGet, ConfigSet, CosmicConfigEntry};
+    use cosmic_config::{Config, CosmicConfigEntry};
 
     #[test]
     fn uses_filled_pills_by_default() {
@@ -134,14 +132,6 @@ mod tests {
     }
 
     #[test]
-    fn uses_twenty_five_percent_inactive_pill_contrast_by_default() {
-        assert_eq!(
-            WorkspacesAppletConfig::default().inactive_pill_contrast_percent,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-    }
-
-    #[test]
     fn shows_one_icon_per_application_by_default() {
         assert!(WorkspacesAppletConfig::default().show_one_icon_per_application);
     }
@@ -155,27 +145,6 @@ mod tests {
     }
 
     #[test]
-    fn supplies_the_default_contrast_when_deserializing_an_older_config() {
-        let config: WorkspacesAppletConfig = serde_json::from_str(
-            r#"{
-                "dim_minimized_window_icons": true,
-                "highlight_maximized_window_icons": true,
-                "pill_style": "Filled",
-                "pill_border_width": 2,
-                "pill_spacing_percent": 0
-            }"#,
-        )
-        .expect("an older config should deserialize using defaults for missing fields");
-
-        assert_eq!(
-            config.inactive_pill_contrast_percent,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-        assert!(config.show_one_icon_per_application);
-        assert_eq!(config.max_visible_icons, DEFAULT_VISIBLE_ICONS);
-    }
-
-    #[test]
     fn loads_an_older_cosmic_config_with_application_grouping_enabled() {
         let directory = tempfile::tempdir().expect("temporary config directory");
         let config = Config::with_custom_path(
@@ -184,12 +153,6 @@ mod tests {
             directory.path().to_path_buf(),
         )
         .expect("version three config");
-        config
-            .set(
-                "inactive_pill_contrast_percent",
-                DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
-            )
-            .expect("existing contrast setting");
 
         let (loaded, errors) = WorkspacesAppletConfig::load(&config);
 

@@ -17,7 +17,6 @@ use cosmic::{
     Element, Task, Theme, app,
     applet::{cosmic_panel_config::PanelAnchor, padded_control},
     cosmic_config::{Config, CosmicConfigEntry},
-    cosmic_theme::palette::{FromColor, Mix, Oklab, Srgb, Srgba},
     desktop::{IconSourceExt, fde},
     iced::core::{
         Background, Border, Color, Rectangle, Size,
@@ -41,9 +40,8 @@ use cosmic::{
 
 use crate::{
     config::{
-        self, INACTIVE_PILL_CONTRAST_STEP_PERCENT, MAX_INACTIVE_PILL_CONTRAST_PERCENT,
-        MAX_PILL_BORDER_WIDTH, MAX_PILL_SPACING_PERCENT, MAX_VISIBLE_ICONS, MIN_PILL_BORDER_WIDTH,
-        MIN_VISIBLE_ICONS, WorkspacePillStyle, WorkspacesAppletConfig,
+        self, MAX_PILL_BORDER_WIDTH, MAX_PILL_SPACING_PERCENT, MAX_VISIBLE_ICONS,
+        MIN_PILL_BORDER_WIDTH, MIN_VISIBLE_ICONS, WorkspacePillStyle, WorkspacesAppletConfig,
     },
     wayland::WorkspaceEvent,
     wayland_subscription::{WorkspacesUpdate, workspaces},
@@ -73,7 +71,6 @@ const WORKSPACE_DIVIDER_WIDTH: f32 = 1.0;
 const MINIMIZED_ICON_OPACITY: f32 = 0.45;
 const MAXIMIZED_HIGHLIGHT_SCALE: f32 = 1.28;
 const MAXIMIZED_ICON_GLOW_OPACITY: f32 = 0.24;
-const INACTIVE_PILL_HOVER_CONTRAST_INCREASE_PERCENT: u8 = 15;
 const URGENT_FILLED_BORDER_WIDTH: f32 = 1.0;
 const VERSION_TEXT_OPACITY: f32 = 0.45;
 const XL_ICON_SIZE_THRESHOLD: f32 = 40.0;
@@ -447,32 +444,6 @@ fn pill_border_width(value: u8) -> u8 {
     value.clamp(MIN_PILL_BORDER_WIDTH, MAX_PILL_BORDER_WIDTH)
 }
 
-fn inactive_pill_contrast_percent(value: u8, hovered: bool) -> u8 {
-    let value = value.min(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-    if hovered {
-        value
-            .saturating_add(INACTIVE_PILL_HOVER_CONTRAST_INCREASE_PERCENT)
-            .min(MAX_INACTIVE_PILL_CONTRAST_PERCENT)
-    } else {
-        value
-    }
-}
-
-fn inactive_pill_contrast_color(start: Srgba, end: Srgba, percent: u8) -> Color {
-    let percent = percent.min(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-    if percent == 0 {
-        return Color::from(start.color);
-    }
-    if percent == MAX_INACTIVE_PILL_CONTRAST_PERCENT {
-        return Color::from(end.color);
-    }
-
-    let start = Oklab::from_color(start.color);
-    let end = Oklab::from_color(end.color);
-    let factor = f32::from(percent) / f32::from(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-    Color::from(Srgb::from_color(start.mix(end, factor)))
-}
-
 fn workspace_overview_command(flatpak: bool) -> (&'static str, &'static [&'static str]) {
     if flatpak {
         ("flatpak-spawn", &["--host", "cosmic-workspaces"])
@@ -560,35 +531,6 @@ impl IcedWorkspacesApplet {
             .into()
     }
 
-    fn inactive_pill_contrast_stepper(&self) -> Element<'_, Message> {
-        let value = self.config.inactive_pill_contrast_percent;
-        let decrement: Element<'_, Message> =
-            cosmic::widget::button::icon(symbolic_svg_icon(DECREASE_ICON_SVG))
-                .on_press_maybe((value > 0).then(|| {
-                    Message::InactivePillContrast(
-                        value.saturating_sub(INACTIVE_PILL_CONTRAST_STEP_PERCENT),
-                    )
-                }))
-                .into();
-        let increment: Element<'_, Message> =
-            cosmic::widget::button::icon(symbolic_svg_icon(INCREASE_ICON_SVG))
-                .on_press_maybe((value < MAX_INACTIVE_PILL_CONTRAST_PERCENT).then(|| {
-                    Message::InactivePillContrast(
-                        value
-                            .saturating_add(INACTIVE_PILL_CONTRAST_STEP_PERCENT)
-                            .min(MAX_INACTIVE_PILL_CONTRAST_PERCENT),
-                    )
-                }))
-                .into();
-        let value = container(self.core.applet.text(format!("{value}%")).size(14))
-            .center_x(Length::Fixed(48.0))
-            .align_y(Alignment::Center);
-
-        row![decrement, value, increment]
-            .align_y(Alignment::Center)
-            .into()
-    }
-
     fn max_visible_icons_stepper(&self) -> Element<'_, Message> {
         let value = self.config.max_visible_icons;
         let decrement: Element<'_, Message> =
@@ -622,7 +564,6 @@ impl IcedWorkspacesApplet {
         pill_style: WorkspacePillStyle,
         inactive_pill_style: WorkspacePillStyle,
         outlined_border_width: f32,
-        inactive_contrast_percent: u8,
     ) -> container::Style {
         let cosmic = theme.cosmic();
         let urgent = urgent && !active;
@@ -723,14 +664,25 @@ impl IcedWorkspacesApplet {
         } else {
             border_width
         };
+        let mut border_width = match (outlined_mode, hovered) {
+            (true, false) => outlined_border_width,
+            (true, true) if urgent => outlined_border_width,
+            _ => 0.0,
+        };
+
+        if urgent && !active {
+            let destructive = cosmic.destructive_button.base.into();
+            text_color = destructive;
+            border_color = destructive;
+            border_width = border_width.max(URGENT_FILLED_BORDER_WIDTH);
+        }
 
         container::Style {
-            background,
+            background: background.map(Background::Color),
             border: Border {
                 color: border_color,
                 width: border_width,
                 radius: cosmic.radius_xl().into(),
-                ..Default::default()
             },
             text_color: Some(text_color),
             icon_color: Some(text_color),
@@ -749,7 +701,7 @@ impl IcedWorkspacesApplet {
         }
 
         container::Style {
-            text_color: Some(Self::outlined_active_foreground(theme, hovered).into()),
+            text_color: Some(Self::outlined_active_foreground(theme, hovered)),
             ..Default::default()
         }
     }
@@ -1221,7 +1173,6 @@ impl IcedWorkspacesApplet {
                         pill_style,
                         inactive_pill_style,
                         outlined_border_width,
-                        self.config.inactive_pill_contrast_percent,
                     )
                 }))),
         )
@@ -1245,7 +1196,6 @@ impl IcedWorkspacesApplet {
                     pill_style,
                     inactive_pill_style,
                     outlined_border_width,
-                    self.config.inactive_pill_contrast_percent,
                 );
                 container::Style {
                     text_color: pill_style.text_color,
@@ -1285,11 +1235,10 @@ mod tests {
 
     use super::{
         APP_GROUP_LEADING_PADDING, APP_GROUP_TRAILING_PADDING, APP_ICON_SPACING, Background, Color,
-        IcedWorkspacesApplet, Layout, MAX_INACTIVE_PILL_CONTRAST_PERCENT, MAX_PILL_BORDER_WIDTH,
+        IcedWorkspacesApplet, Layout, MAX_PILL_BORDER_WIDTH,
         MIN_PILL_BORDER_WIDTH, Theme, URGENT_FILLED_BORDER_WIDTH, WORKSPACE_CONTENT_SPACING,
         WORKSPACE_LEADING_PADDING, WORKSPACE_LIST_EDGE_PADDING, WORKSPACE_TRAILING_PADDING,
-        AppMetadata, WorkspaceApp, WorkspaceWindowState, display_icons,
-        inactive_pill_contrast_color, inactive_pill_contrast_percent, informative_titles,
+        AppMetadata, WorkspaceApp, WorkspaceWindowState, display_icons, informative_titles,
         occupied_number_section_major_size, oriented_padding, pill_border_width,
         pill_spacing_percent, should_retain_toplevel_placement, visible_icon_counts,
         visible_icon_limit, workspace_list_padding, workspace_number_font_size,
@@ -1436,7 +1385,6 @@ mod tests {
             active_pill_style,
             inactive_pill_style,
             TEST_OUTLINED_BORDER_WIDTH,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
         )
     }
 
@@ -1600,7 +1548,6 @@ mod tests {
                 WorkspacePillStyle::Outlined,
                 WorkspacePillStyle::Outlined,
                 3.0,
-                DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
             );
             assert_eq!(style.border.width, 3.0);
         }
@@ -1736,7 +1683,6 @@ mod tests {
                 outlined_mode,
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
-                0,
             );
             let maximum_contrast = IcedWorkspacesApplet::workspace_pill_style(
                 &theme,
@@ -1746,7 +1692,6 @@ mod tests {
                 outlined_mode,
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
-                100,
             );
 
             assert_eq!(minimum_contrast, maximum_contrast);
@@ -2061,7 +2006,6 @@ enum Message {
     PillStyle(usize),
     PillBorderWidth(u8),
     PillSpacing(u8),
-    InactivePillContrast(u8),
     ConfigUpdated(WorkspacesAppletConfig),
     Surface(surface::Action),
 }
@@ -2233,17 +2177,10 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config.pill_spacing_percent = pill_spacing_percent(percent);
                 self.write_config();
             }
-            Message::InactivePillContrast(percent) => {
-                self.config.inactive_pill_contrast_percent =
-                    inactive_pill_contrast_percent(percent, false);
-                self.write_config();
-            }
             Message::ConfigUpdated(mut config) => {
                 config.pill_border_width = pill_border_width(config.pill_border_width);
                 config.pill_spacing_percent = pill_spacing_percent(config.pill_spacing_percent);
                 config.max_visible_icons = visible_icon_limit(config.max_visible_icons);
-                config.inactive_pill_contrast_percent =
-                    inactive_pill_contrast_percent(config.inactive_pill_contrast_percent, false);
                 self.config = config;
             }
             Message::Surface(a) => {
@@ -2447,15 +2384,6 @@ impl cosmic::Application for IcedWorkspacesApplet {
                         self.pill_spacing_stepper()
                     ]
                     .align_y(Alignment::Center),
-                    row![
-                        self.core
-                            .applet
-                            .text(crate::fl!("inactive-pill-contrast"))
-                            .size(14),
-                        space::horizontal(),
-                        self.inactive_pill_contrast_stepper()
-                    ]
-                    .align_y(Alignment::Center)
                 ]
                 .spacing(spacing.space_xxs)
                 .align_x(Alignment::Start)
