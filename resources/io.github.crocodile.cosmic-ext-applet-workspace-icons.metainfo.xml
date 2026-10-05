@@ -90,6 +90,14 @@
     <keyword xml:lang="cs">Ikony</keyword>
   </keywords>
   <releases>
+    <release type="stable" version="1.3.0" date="2026-10-05">
+      <description>
+        <ul>
+          <li>Choose from all filled, active filled, and all outlined workspace pill styles.</li>
+          <li>Preserve outlined pill settings on upgrade and improve urgent and hover styling.</li>
+        </ul>
+      </description>
+    </release>
     <release type="stable" version="1.2.0" date="2026-07-29">
       <description>
         <ul>
