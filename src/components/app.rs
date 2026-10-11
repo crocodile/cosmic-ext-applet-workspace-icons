@@ -17,7 +17,7 @@ use cosmic::{
     Element, Task, Theme, app,
     applet::{cosmic_panel_config::PanelAnchor, padded_control},
     cosmic_config::{Config, CosmicConfigEntry},
-    cosmic_theme::palette::{FromColor, Mix, Oklab, Srgb, Srgba},
+    cosmic_theme::palette::{IntoColor, Oklab, Srgb, Srgba},
     desktop::{IconSourceExt, fde},
     iced::core::{
         Background, Border, Color, Rectangle, Size,
@@ -41,9 +41,10 @@ use cosmic::{
 
 use crate::{
     config::{
-        self, INACTIVE_PILL_CONTRAST_STEP_PERCENT, MAX_INACTIVE_PILL_CONTRAST_PERCENT,
-        MAX_PILL_BORDER_WIDTH, MAX_PILL_SPACING_PERCENT, MAX_VISIBLE_ICONS, MIN_PILL_BORDER_WIDTH,
-        MIN_VISIBLE_ICONS, WorkspacePillStyle, WorkspacesAppletConfig,
+        self, INACTIVE_PILL_BRIGHTNESS_STEP, MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT,
+        MAX_PILL_BORDER_WIDTH, MAX_PILL_SPACING_PERCENT, MAX_VISIBLE_ICONS,
+        MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT, MIN_PILL_BORDER_WIDTH, MIN_VISIBLE_ICONS,
+        WorkspacePillStyle, WorkspacesAppletConfig,
     },
     wayland::WorkspaceEvent,
     wayland_subscription::{WorkspacesUpdate, workspaces},
@@ -73,7 +74,6 @@ const WORKSPACE_DIVIDER_WIDTH: f32 = 1.0;
 const MINIMIZED_ICON_OPACITY: f32 = 0.45;
 const MAXIMIZED_HIGHLIGHT_SCALE: f32 = 1.28;
 const MAXIMIZED_ICON_GLOW_OPACITY: f32 = 0.24;
-const INACTIVE_PILL_HOVER_CONTRAST_INCREASE_PERCENT: u8 = 15;
 const URGENT_FILLED_BORDER_WIDTH: f32 = 1.0;
 const VERSION_TEXT_OPACITY: f32 = 0.45;
 const XL_ICON_SIZE_THRESHOLD: f32 = 40.0;
@@ -447,30 +447,37 @@ fn pill_border_width(value: u8) -> u8 {
     value.clamp(MIN_PILL_BORDER_WIDTH, MAX_PILL_BORDER_WIDTH)
 }
 
-fn inactive_pill_contrast_percent(value: u8, hovered: bool) -> u8 {
-    let value = value.min(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-    if hovered {
-        value
-            .saturating_add(INACTIVE_PILL_HOVER_CONTRAST_INCREASE_PERCENT)
-            .min(MAX_INACTIVE_PILL_CONTRAST_PERCENT)
-    } else {
-        value
-    }
+fn inactive_pill_brightness_percent(value: i8) -> i8 {
+    value.clamp(
+        MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT,
+        MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT,
+    )
 }
 
-fn inactive_pill_contrast_color(start: Srgba, end: Srgba, percent: u8) -> Color {
-    let percent = percent.min(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-    if percent == 0 {
-        return Color::from(start.color);
-    }
-    if percent == MAX_INACTIVE_PILL_CONTRAST_PERCENT {
-        return Color::from(end.color);
+fn inactive_pill_color(token: Srgba, brightness_percent: i8) -> Color {
+    let brightness_percent = inactive_pill_brightness_percent(brightness_percent);
+    if brightness_percent == 0 {
+        // Avoid a colour-space round trip so 0% exactly matches COSMIC's token.
+        return token.into();
     }
 
-    let start = Oklab::from_color(start.color);
-    let end = Oklab::from_color(end.color);
-    let factor = f32::from(percent) / f32::from(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-    Color::from(Srgb::from_color(start.mix(end, factor)))
+    // Adjust only perceptual lightness. Keep the button token's hue, chroma,
+    // and alpha: its translucency is part of COSMIC's frosted-panel styling.
+    let mut oklab: Oklab = Srgb::new(token.red, token.green, token.blue).into_color();
+    let fraction = f32::from(brightness_percent) / 100.0;
+    oklab.l = if fraction < 0.0 {
+        oklab.l * (1.0 + fraction)
+    } else {
+        oklab.l + (1.0 - oklab.l) * fraction
+    };
+    let adjusted: Srgb = oklab.into_color();
+    Srgba::new(
+        adjusted.red.clamp(0.0, 1.0),
+        adjusted.green.clamp(0.0, 1.0),
+        adjusted.blue.clamp(0.0, 1.0),
+        token.alpha,
+    )
+    .into()
 }
 
 fn workspace_overview_command(flatpak: bool) -> (&'static str, &'static [&'static str]) {
@@ -513,6 +520,38 @@ fn symbolic_svg_icon(bytes: &'static [u8]) -> cosmic::widget::icon::Handle {
 }
 
 impl IcedWorkspacesApplet {
+    fn inactive_pill_brightness_stepper(&self) -> Element<'_, Message> {
+        let value = self.config.inactive_pill_brightness_percent;
+        let decrement: Element<'_, Message> =
+            cosmic::widget::button::icon(symbolic_svg_icon(DECREASE_ICON_SVG))
+                .on_press_maybe((value > MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT).then(|| {
+                    Message::InactivePillBrightness(inactive_pill_brightness_percent(
+                        value - INACTIVE_PILL_BRIGHTNESS_STEP,
+                    ))
+                }))
+                .into();
+        let increment: Element<'_, Message> =
+            cosmic::widget::button::icon(symbolic_svg_icon(INCREASE_ICON_SVG))
+                .on_press_maybe((value < MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT).then(|| {
+                    Message::InactivePillBrightness(inactive_pill_brightness_percent(
+                        value + INACTIVE_PILL_BRIGHTNESS_STEP,
+                    ))
+                }))
+                .into();
+        let label = if value > 0 {
+            format!("+{value}%")
+        } else {
+            format!("{value}%")
+        };
+        let value = container(self.core.applet.text(label).size(14))
+            .center_x(Length::Fixed(48.0))
+            .align_y(Alignment::Center);
+
+        row![decrement, value, increment]
+            .align_y(Alignment::Center)
+            .into()
+    }
+
     fn pill_border_width_stepper(&self) -> Element<'_, Message> {
         let value = self.config.pill_border_width;
         let decrement: Element<'_, Message> =
@@ -560,35 +599,6 @@ impl IcedWorkspacesApplet {
             .into()
     }
 
-    fn inactive_pill_contrast_stepper(&self) -> Element<'_, Message> {
-        let value = self.config.inactive_pill_contrast_percent;
-        let decrement: Element<'_, Message> =
-            cosmic::widget::button::icon(symbolic_svg_icon(DECREASE_ICON_SVG))
-                .on_press_maybe((value > 0).then(|| {
-                    Message::InactivePillContrast(
-                        value.saturating_sub(INACTIVE_PILL_CONTRAST_STEP_PERCENT),
-                    )
-                }))
-                .into();
-        let increment: Element<'_, Message> =
-            cosmic::widget::button::icon(symbolic_svg_icon(INCREASE_ICON_SVG))
-                .on_press_maybe((value < MAX_INACTIVE_PILL_CONTRAST_PERCENT).then(|| {
-                    Message::InactivePillContrast(
-                        value
-                            .saturating_add(INACTIVE_PILL_CONTRAST_STEP_PERCENT)
-                            .min(MAX_INACTIVE_PILL_CONTRAST_PERCENT),
-                    )
-                }))
-                .into();
-        let value = container(self.core.applet.text(format!("{value}%")).size(14))
-            .center_x(Length::Fixed(48.0))
-            .align_y(Alignment::Center);
-
-        row![decrement, value, increment]
-            .align_y(Alignment::Center)
-            .into()
-    }
-
     fn max_visible_icons_stepper(&self) -> Element<'_, Message> {
         let value = self.config.max_visible_icons;
         let decrement: Element<'_, Message> =
@@ -622,115 +632,66 @@ impl IcedWorkspacesApplet {
         pill_style: WorkspacePillStyle,
         inactive_pill_style: WorkspacePillStyle,
         outlined_border_width: f32,
-        inactive_contrast_percent: u8,
+        inactive_brightness_percent: i8,
     ) -> container::Style {
         let cosmic = theme.cosmic();
-        let urgent = urgent && !active;
-        let (background, text_color, border_color, border_width) = if active
-            && pill_style == WorkspacePillStyle::Outlined
-        {
-            let component = &cosmic.accent_button;
-            let border_color = Color::from(if hovered {
-                component.hover
-            } else {
-                component.base
-            });
-            let background = hovered.then_some(Background::Color(border_color));
-            (
-                background,
-                if hovered {
-                    component.on.into()
-                } else {
-                    theme.current_container().component.on.into()
-                },
-                border_color,
-                outlined_border_width,
-            )
-        } else if active {
-            let component = &cosmic.accent_button;
-            (
-                Some(Background::Color(
-                    if hovered {
-                        component.hover
-                    } else {
-                        component.base
-                    }
-                    .into(),
-                )),
-                component.on.into(),
-                Color::TRANSPARENT,
-                0.0,
-            )
-        } else if urgent {
-            let color = Color::from(if hovered {
-                theme.current_container().component.hover
-            } else {
-                cosmic.palette.neutral_3
-            });
-            let destructive = cosmic.destructive_button.base.into();
-            (
-                (inactive_pill_style != WorkspacePillStyle::Outlined || hovered)
-                    .then_some(Background::Color(color)),
-                destructive,
-                destructive,
-                if inactive_pill_style == WorkspacePillStyle::Outlined {
-                    outlined_border_width
-                } else {
-                    URGENT_FILLED_BORDER_WIDTH
-                },
-            )
+        let outlined_mode = if active {
+            pill_style == WorkspacePillStyle::Outlined
         } else {
-            let container = theme.current_container();
-            let component = &container.component;
-            let source = if hovered {
-                component.hover
-            } else {
-                container.base
-            };
-            let background = inactive_pill_contrast_color(
-                source,
-                component.border,
-                inactive_pill_contrast_percent(inactive_contrast_percent, hovered),
-            );
-            (
-                (inactive_pill_style == WorkspacePillStyle::Filled || hovered)
-                    .then_some(Background::Color(background)),
-                component.on.into(),
-                if inactive_pill_style == WorkspacePillStyle::Outlined {
-                    background
-                } else {
-                    Color::TRANSPARENT
-                },
-                if inactive_pill_style == WorkspacePillStyle::Outlined {
-                    outlined_border_width
-                } else {
-                    0.0
-                },
-            )
+            inactive_pill_style == WorkspacePillStyle::Outlined
+        };
+        let component = if active {
+            &cosmic.accent_button
+        } else {
+            &cosmic.button
+        };
+        let urgent = urgent && !active;
+        let destructive = cosmic.destructive_button.base.into();
+
+        let base = if active || urgent {
+            component.base.into()
+        } else {
+            inactive_pill_color(component.base, inactive_brightness_percent)
+        };
+        let hover = if active || urgent {
+            component.hover.into()
+        } else {
+            inactive_pill_color(component.hover, inactive_brightness_percent)
         };
 
-        let style_for_state = if active { pill_style } else { inactive_pill_style };
-        let border_color = if style_for_state == WorkspacePillStyle::Outlined && hovered && !urgent {
-            match background.as_ref() {
-                Some(Background::Color(color)) => *color,
-                _ => border_color,
-            }
-        } else {
-            border_color
+        let background = match (outlined_mode, hovered) {
+            (_, true) => Some(hover),
+            (false, false) => Some(base),
+            _ => None,
         };
-        let border_width = if style_for_state == WorkspacePillStyle::Outlined && hovered && !urgent {
-            0.0
+        let text_color = if urgent {
+            destructive
+        } else if active && outlined_mode && !hovered {
+            // An outlined active pill has no accent fill at rest. Keep overflow
+            // text and symbolic icons readable against the panel background.
+            theme.current_container().component.on.into()
         } else {
-            border_width
+            component.on.into()
+        };
+        let border_color = match (outlined_mode, hovered, urgent) {
+            (_, _, true) => destructive,
+            (true, true, false) => hover,
+            (true, false, false) => base,
+            _ => Color::TRANSPARENT,
+        };
+        let border_width = match (outlined_mode, hovered, urgent) {
+            (false, _, true) => URGENT_FILLED_BORDER_WIDTH,
+            (true, _, true) => outlined_border_width.max(URGENT_FILLED_BORDER_WIDTH),
+            (true, false, false) => outlined_border_width,
+            _ => 0.0,
         };
 
         container::Style {
-            background,
+            background: background.map(Background::Color),
             border: Border {
                 color: border_color,
                 width: border_width,
                 radius: cosmic.radius_xl().into(),
-                ..Default::default()
             },
             text_color: Some(text_color),
             icon_color: Some(text_color),
@@ -749,7 +710,7 @@ impl IcedWorkspacesApplet {
         }
 
         container::Style {
-            text_color: Some(Self::outlined_active_foreground(theme, hovered).into()),
+            text_color: Some(Self::outlined_active_foreground(theme, hovered)),
             ..Default::default()
         }
     }
@@ -1079,6 +1040,7 @@ impl IcedWorkspacesApplet {
         let pill_style = self.config.pill_style;
         let inactive_pill_style = self.config.inactive_pill_style;
         let outlined_border_width = f32::from(self.config.pill_border_width);
+        let inactive_brightness_percent = self.config.inactive_pill_brightness_percent;
         let pill_cross_axis_inset = if horizontal {
             height * f32::from(self.config.pill_spacing_percent) / 100.0
         } else {
@@ -1221,7 +1183,7 @@ impl IcedWorkspacesApplet {
                         pill_style,
                         inactive_pill_style,
                         outlined_border_width,
-                        self.config.inactive_pill_contrast_percent,
+                        inactive_brightness_percent,
                     )
                 }))),
         )
@@ -1245,7 +1207,7 @@ impl IcedWorkspacesApplet {
                     pill_style,
                     inactive_pill_style,
                     outlined_border_width,
-                    self.config.inactive_pill_contrast_percent,
+                    inactive_brightness_percent,
                 );
                 container::Style {
                     text_color: pill_style.text_color,
@@ -1279,17 +1241,18 @@ impl IcedWorkspacesApplet {
 #[cfg(test)]
 mod tests {
     use crate::config::{
-        DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT, MAX_VISIBLE_ICONS, MIN_VISIBLE_ICONS,
-        WorkspacePillStyle,
+        MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT, MAX_VISIBLE_ICONS,
+        MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT, MIN_VISIBLE_ICONS, WorkspacePillStyle,
     };
+    use cosmic::cosmic_theme::palette::{IntoColor, Oklab, Srgb};
 
     use super::{
         APP_GROUP_LEADING_PADDING, APP_GROUP_TRAILING_PADDING, APP_ICON_SPACING, Background, Color,
-        IcedWorkspacesApplet, Layout, MAX_INACTIVE_PILL_CONTRAST_PERCENT, MAX_PILL_BORDER_WIDTH,
+        IcedWorkspacesApplet, Layout, MAX_PILL_BORDER_WIDTH,
         MIN_PILL_BORDER_WIDTH, Theme, URGENT_FILLED_BORDER_WIDTH, WORKSPACE_CONTENT_SPACING,
         WORKSPACE_LEADING_PADDING, WORKSPACE_LIST_EDGE_PADDING, WORKSPACE_TRAILING_PADDING,
-        AppMetadata, WorkspaceApp, WorkspaceWindowState, display_icons,
-        inactive_pill_contrast_color, inactive_pill_contrast_percent, informative_titles,
+        AppMetadata, WorkspaceApp, WorkspaceWindowState, display_icons, informative_titles,
+        inactive_pill_brightness_percent, inactive_pill_color,
         occupied_number_section_major_size, oriented_padding, pill_border_width,
         pill_spacing_percent, should_retain_toplevel_placement, visible_icon_counts,
         visible_icon_limit, workspace_list_padding, workspace_number_font_size,
@@ -1436,7 +1399,7 @@ mod tests {
             active_pill_style,
             inactive_pill_style,
             TEST_OUTLINED_BORDER_WIDTH,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
+            0,
         )
     }
 
@@ -1447,25 +1410,6 @@ mod tests {
         assert!(!should_retain_toplevel_placement(0, Some(0), false));
         assert!(!should_retain_toplevel_placement(0, None, false));
         assert!(!should_retain_toplevel_placement(0, Some(1), true));
-    }
-
-    fn test_pill_style_with_contrast(
-        theme: &Theme,
-        hovered: bool,
-        active_pill_style: WorkspacePillStyle,
-        inactive_pill_style: WorkspacePillStyle,
-        contrast_percent: u8,
-    ) -> cosmic::widget::container::Style {
-        IcedWorkspacesApplet::workspace_pill_style(
-            theme,
-            false,
-            false,
-            hovered,
-            active_pill_style,
-            inactive_pill_style,
-            TEST_OUTLINED_BORDER_WIDTH,
-            contrast_percent,
-        )
     }
 
     #[test]
@@ -1508,82 +1452,6 @@ mod tests {
     }
 
     #[test]
-    fn keeps_inactive_pill_background_when_not_hovered() {
-        let theme = Theme::default();
-        let style = test_pill_style(
-            &theme,
-            false,
-            false,
-            false,
-            WorkspacePillStyle::Filled,
-            WorkspacePillStyle::Filled,
-        );
-
-        let Some(Background::Color(background)) = style.background else {
-            panic!("inactive pill should have a solid opaque background");
-        };
-        let container = theme.current_container();
-        let component = &container.component;
-        let expected = inactive_pill_contrast_color(
-            container.base,
-            component.border,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
-        );
-        assert_eq!(background, expected);
-        assert_eq!(background.a, 1.0);
-    }
-
-    #[test]
-    fn gently_emphasizes_inactive_pill_background_when_hovered() {
-        let theme = Theme::default();
-        let style = test_pill_style(
-            &theme,
-            false,
-            false,
-            true,
-            WorkspacePillStyle::Filled,
-            WorkspacePillStyle::Filled,
-        );
-
-        let Some(Background::Color(background)) = style.background else {
-            panic!("hovered inactive pill should have a solid opaque background");
-        };
-        let component = &theme.current_container().component;
-        let expected = inactive_pill_contrast_color(
-            component.hover,
-            component.border,
-            inactive_pill_contrast_percent(DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT, true),
-        );
-        assert_eq!(background, expected);
-        assert_eq!(background.a, 1.0);
-    }
-
-    #[test]
-    fn outlines_inactive_pills_in_outlined_mode() {
-        let theme = Theme::default();
-        let style = test_pill_style(
-            &theme,
-            false,
-            false,
-            false,
-            WorkspacePillStyle::Filled,
-            WorkspacePillStyle::Outlined,
-        );
-
-        let container = theme.current_container();
-        let component = &container.component;
-        let expected = inactive_pill_contrast_color(
-            container.base,
-            component.border,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
-        );
-        assert_eq!(style.background, None);
-        assert_eq!(style.border.color, expected);
-        assert_eq!(style.border.color.a, 1.0);
-        assert_eq!(style.border.width, TEST_OUTLINED_BORDER_WIDTH);
-    }
-
-    #[test]
     fn uses_the_selected_width_for_outlined_pills() {
         let theme = Theme::default();
 
@@ -1600,126 +1468,14 @@ mod tests {
                 WorkspacePillStyle::Outlined,
                 WorkspacePillStyle::Outlined,
                 3.0,
-                DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
+                0,
             );
             assert_eq!(style.border.width, 3.0);
         }
     }
 
     #[test]
-    fn fills_inactive_outlined_pills_on_hover() {
-        let theme = Theme::default();
-        let style = test_pill_style(
-            &theme,
-            false,
-            false,
-            true,
-            WorkspacePillStyle::Filled,
-            WorkspacePillStyle::Outlined,
-        );
-
-        let component = &theme.current_container().component;
-        let expected = inactive_pill_contrast_color(
-            component.hover,
-            component.border,
-            inactive_pill_contrast_percent(DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT, true),
-        );
-        assert_eq!(style.background, Some(Background::Color(expected)));
-        assert_eq!(style.border.color, expected);
-        assert_eq!(style.border.width, 0.0);
-    }
-
-    #[test]
-    fn applies_configured_contrast_to_filled_and_outlined_inactive_pills() {
-        let theme = Theme::default();
-        let container = theme.current_container();
-        let component = &container.component;
-
-        for outlined_mode in [WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined] {
-            for (configured, resting_contrast, hovered_contrast) in
-                [(55, 55, 70), (90, 90, 100), (0, 0, 15)]
-            {
-                let resting = test_pill_style_with_contrast(
-                    &theme,
-                    false,
-                    WorkspacePillStyle::Filled,
-                    outlined_mode,
-                    configured,
-                );
-                let hovered = test_pill_style_with_contrast(
-                    &theme,
-                    true,
-                    WorkspacePillStyle::Filled,
-                    outlined_mode,
-                    configured,
-                );
-
-                let resting_color = inactive_pill_contrast_color(
-                    container.base,
-                    component.border,
-                    resting_contrast,
-                );
-                let hovered_color = inactive_pill_contrast_color(
-                    component.hover,
-                    component.border,
-                    hovered_contrast,
-                );
-
-                if outlined_mode == WorkspacePillStyle::Outlined {
-                    assert_eq!(resting.background, None);
-                    assert_eq!(resting.border.color, resting_color);
-                } else {
-                    assert_eq!(resting.background, Some(Background::Color(resting_color)));
-                }
-                assert_eq!(hovered.background, Some(Background::Color(hovered_color)));
-                if outlined_mode == WorkspacePillStyle::Outlined {
-                    assert_eq!(hovered.border.color, hovered_color);
-                }
-                assert_eq!(resting_color.a, 1.0);
-                assert_eq!(hovered_color.a, 1.0);
-            }
-        }
-    }
-
-    #[test]
-    fn uses_opaque_theme_tokens_at_the_contrast_endpoints() {
-        let theme = Theme::default();
-        let container = theme.current_container();
-        let component = &container.component;
-
-        let minimum =
-            inactive_pill_contrast_color(container.base, component.border, 0);
-        let maximum =
-            inactive_pill_contrast_color(container.base, component.border, 100);
-
-        assert_eq!(minimum, Color::from(container.base.color));
-        assert_eq!(maximum, Color::from(component.border.color));
-        assert_eq!(minimum.a, 1.0);
-        assert_eq!(maximum.a, 1.0);
-    }
-
-    #[test]
-    fn derives_hover_contrast_from_the_configured_resting_contrast() {
-        assert_eq!(inactive_pill_contrast_percent(55, false), 55);
-        assert_eq!(inactive_pill_contrast_percent(55, true), 70);
-        assert_eq!(inactive_pill_contrast_percent(90, false), 90);
-        assert_eq!(inactive_pill_contrast_percent(90, true), 100);
-        assert_eq!(inactive_pill_contrast_percent(0, false), 0);
-        assert_eq!(inactive_pill_contrast_percent(0, true), 15);
-    }
-
-    #[test]
-    fn clamps_inactive_pill_contrast_to_one_hundred_percent() {
-        assert_eq!(inactive_pill_contrast_percent(100, false), 100);
-        assert_eq!(
-            inactive_pill_contrast_percent(u8::MAX, false),
-            MAX_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-        assert_eq!(inactive_pill_contrast_percent(u8::MAX, true), 100);
-    }
-
-    #[test]
-    fn keeps_active_and_urgent_styles_independent_of_inactive_contrast() {
+    fn keeps_active_and_urgent_styles_independent_of_inactive_brightness() {
         let theme = Theme::default();
 
         for (active, urgent, hovered, outlined_mode) in [
@@ -1728,7 +1484,7 @@ mod tests {
             (false, true, false, WorkspacePillStyle::Filled),
             (false, true, true, WorkspacePillStyle::Outlined),
         ] {
-            let minimum_contrast = IcedWorkspacesApplet::workspace_pill_style(
+            let minimum_brightness = IcedWorkspacesApplet::workspace_pill_style(
                 &theme,
                 active,
                 urgent,
@@ -1736,9 +1492,9 @@ mod tests {
                 outlined_mode,
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
-                0,
+                MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT,
             );
-            let maximum_contrast = IcedWorkspacesApplet::workspace_pill_style(
+            let maximum_brightness = IcedWorkspacesApplet::workspace_pill_style(
                 &theme,
                 active,
                 urgent,
@@ -1746,11 +1502,110 @@ mod tests {
                 outlined_mode,
                 outlined_mode,
                 TEST_OUTLINED_BORDER_WIDTH,
-                100,
+                MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT,
             );
 
-            assert_eq!(minimum_contrast, maximum_contrast);
+            assert_eq!(minimum_brightness, maximum_brightness);
         }
+    }
+
+    #[test]
+    fn zero_brightness_uses_exact_cosmic_button_colors() {
+        for theme in [Theme::dark(), Theme::light()] {
+            let button = &theme.cosmic().button;
+
+            for inactive_style in [WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined] {
+                for hovered in [false, true] {
+                    let style = IcedWorkspacesApplet::workspace_pill_style(
+                        &theme,
+                        false,
+                        false,
+                        hovered,
+                        WorkspacePillStyle::Filled,
+                        inactive_style,
+                        TEST_OUTLINED_BORDER_WIDTH,
+                        0,
+                    );
+                    let expected = Color::from(if hovered { button.hover } else { button.base });
+                    assert_eq!(
+                        style.background,
+                        (inactive_style == WorkspacePillStyle::Filled || hovered)
+                            .then_some(Background::Color(expected))
+                    );
+                    if inactive_style == WorkspacePillStyle::Outlined && !hovered {
+                        assert_eq!(style.border.color, expected);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn brightness_adjusts_lightness_and_preserves_each_button_alpha() {
+        for theme in [Theme::dark(), Theme::light()] {
+            for token in [theme.cosmic().button.base, theme.cosmic().button.hover] {
+                let darker = inactive_pill_color(token, MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT);
+                let original = inactive_pill_color(token, 0);
+                let lighter = inactive_pill_color(token, MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT);
+                let lightness = |color: Color| -> f32 {
+                    let lab: Oklab = Srgb::new(color.r, color.g, color.b).into_color();
+                    lab.l
+                };
+
+                assert!(lightness(darker) < lightness(original));
+                assert!(lightness(original) < lightness(lighter));
+                assert_eq!(darker.a, original.a);
+                assert_eq!(lighter.a, original.a);
+                assert_eq!(original.a, token.alpha);
+            }
+        }
+    }
+
+    #[test]
+    fn nonzero_brightness_applies_to_both_inactive_pill_styles() {
+        let theme = Theme::default();
+        let button = &theme.cosmic().button;
+
+        for brightness in [
+            MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT,
+            MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT,
+        ] {
+            for active_style in [WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined] {
+                for inactive_style in [WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined] {
+                    for hovered in [false, true] {
+                        let style = IcedWorkspacesApplet::workspace_pill_style(
+                            &theme,
+                            false,
+                            false,
+                            hovered,
+                            active_style,
+                            inactive_style,
+                            TEST_OUTLINED_BORDER_WIDTH,
+                            brightness,
+                        );
+                        let token = if hovered { button.hover } else { button.base };
+                        let expected = inactive_pill_color(token, brightness);
+
+                        assert_eq!(
+                            style.background,
+                            (inactive_style == WorkspacePillStyle::Filled || hovered)
+                                .then_some(Background::Color(expected))
+                        );
+                        if inactive_style == WorkspacePillStyle::Outlined && !hovered {
+                            assert_eq!(style.border.color, expected);
+                        }
+                        assert_eq!(expected.a, token.alpha);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn brightness_is_clamped_to_seventy_five_percent_in_either_direction() {
+        assert_eq!(inactive_pill_brightness_percent(i8::MIN), -75);
+        assert_eq!(inactive_pill_brightness_percent(0), 0);
+        assert_eq!(inactive_pill_brightness_percent(i8::MAX), 75);
     }
 
     #[test]
@@ -1820,9 +1675,15 @@ mod tests {
                 assert_eq!(style.text_color, Some(destructive));
                 assert_eq!(style.icon_color, Some(destructive));
                 assert_eq!(style.border.color, destructive);
+                let token = if hovered {
+                    theme.cosmic().button.hover
+                } else {
+                    theme.cosmic().button.base
+                };
                 assert_eq!(
-                    style.background.is_some(),
-                    outlined_mode == WorkspacePillStyle::Filled || hovered
+                    style.background,
+                    (outlined_mode == WorkspacePillStyle::Filled || hovered)
+                        .then_some(Background::Color(token.into()))
                 );
                 assert_eq!(
                     style.border.width,
@@ -1889,6 +1750,9 @@ mod tests {
         assert_eq!(style.background, None);
         assert_eq!(style.border.color, theme.cosmic().accent_button.base.into());
         assert_eq!(style.border.width, TEST_OUTLINED_BORDER_WIDTH);
+        let panel_foreground = theme.current_container().component.on.into();
+        assert_eq!(style.text_color, Some(panel_foreground));
+        assert_eq!(style.icon_color, Some(panel_foreground));
     }
 
     #[test]
@@ -1907,6 +1771,7 @@ mod tests {
         assert_eq!(style.background, Some(Background::Color(expected)));
         assert_eq!(style.border.color, theme.cosmic().accent_button.hover.into());
         assert_eq!(style.text_color, Some(theme.cosmic().accent_button.on.into()));
+        assert_eq!(style.icon_color, Some(theme.cosmic().accent_button.on.into()));
         assert_eq!(style.border.width, 0.0);
     }
 
@@ -2061,7 +1926,7 @@ enum Message {
     PillStyle(usize),
     PillBorderWidth(u8),
     PillSpacing(u8),
-    InactivePillContrast(u8),
+    InactivePillBrightness(i8),
     ConfigUpdated(WorkspacesAppletConfig),
     Surface(surface::Action),
 }
@@ -2087,8 +1952,8 @@ impl cosmic::Application for IcedWorkspacesApplet {
         config.pill_border_width = pill_border_width(config.pill_border_width);
         config.pill_spacing_percent = pill_spacing_percent(config.pill_spacing_percent);
         config.max_visible_icons = visible_icon_limit(config.max_visible_icons);
-        config.inactive_pill_contrast_percent =
-            inactive_pill_contrast_percent(config.inactive_pill_contrast_percent, false);
+        config.inactive_pill_brightness_percent =
+            inactive_pill_brightness_percent(config.inactive_pill_brightness_percent);
         let mut app = Self {
             layout: match &core.applet.anchor {
                 PanelAnchor::Left | PanelAnchor::Right => Layout::Column,
@@ -2233,17 +2098,17 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config.pill_spacing_percent = pill_spacing_percent(percent);
                 self.write_config();
             }
-            Message::InactivePillContrast(percent) => {
-                self.config.inactive_pill_contrast_percent =
-                    inactive_pill_contrast_percent(percent, false);
+            Message::InactivePillBrightness(percent) => {
+                self.config.inactive_pill_brightness_percent =
+                    inactive_pill_brightness_percent(percent);
                 self.write_config();
             }
             Message::ConfigUpdated(mut config) => {
                 config.pill_border_width = pill_border_width(config.pill_border_width);
                 config.pill_spacing_percent = pill_spacing_percent(config.pill_spacing_percent);
                 config.max_visible_icons = visible_icon_limit(config.max_visible_icons);
-                config.inactive_pill_contrast_percent =
-                    inactive_pill_contrast_percent(config.inactive_pill_contrast_percent, false);
+                config.inactive_pill_brightness_percent =
+                    inactive_pill_brightness_percent(config.inactive_pill_brightness_percent);
                 self.config = config;
             }
             Message::Surface(a) => {
@@ -2450,12 +2315,12 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     row![
                         self.core
                             .applet
-                            .text(crate::fl!("inactive-pill-contrast"))
+                            .text(crate::fl!("inactive-pill-brightness"))
                             .size(14),
                         space::horizontal(),
-                        self.inactive_pill_contrast_stepper()
+                        self.inactive_pill_brightness_stepper()
                     ]
-                    .align_y(Alignment::Center)
+                    .align_y(Alignment::Center),
                 ]
                 .spacing(spacing.space_xxs)
                 .align_x(Alignment::Start)

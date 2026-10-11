@@ -11,5 +11,5 @@ pill-style-none = None
 pill-style-outlined = All outlined
 pill-outline-thickness = Outline thickness
 pill-spacing = Pill spacing
-inactive-pill-contrast = Inactive pill contrast
+inactive-pill-brightness = Inactive pill brightness
 version = Version
