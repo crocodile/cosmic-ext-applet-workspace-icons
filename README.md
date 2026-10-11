@@ -36,28 +36,29 @@ configured inactive pill contrast, `H` is `P + 15` percentage points capped at
 
 | State | Mode | Interaction | Fill | Border | Workspace number | Other foreground | Separator |
 |---|---|---|---|---|---|---|---|
-| Inactive | Filled | Resting | `mix(current_container().base, current_container().component.border, P)` | None | `current_container().component.on` | `current_container().component.on` | `current_container().divider` |
-| Inactive | Filled | Hovered | `mix(current_container().component.hover, current_container().component.border, H)` | None | `current_container().component.on` | `current_container().component.on` | `current_container().divider` |
-| Inactive | Outlined | Resting | None | `mix(current_container().base, current_container().component.border, P)`, width `W` | `current_container().component.on` | `current_container().component.on` | `current_container().divider` |
-| Inactive | Outlined | Hovered | `mix(current_container().component.hover, current_container().component.border, H)` | None | `current_container().component.on` | `current_container().component.on` | `current_container().divider` |
+| Inactive | Filled | Resting | RGB mix of `current_container().base` and `current_container().component.border` at `P`, with `button.base` alpha | None | `button.on` | `button.on` | `current_container().divider` |
+| Inactive | Filled | Hovered | RGB mix of `current_container().component.hover` and `current_container().component.border` at `H`, with `button.hover` alpha | None | `button.on` | `button.on` | `current_container().divider` |
+| Inactive | Outlined | Resting | None | Resting inactive RGB mix with `button.base` alpha, width `W` | `button.on` | `button.on` | `current_container().divider` |
+| Inactive | Outlined | Hovered | Hovered inactive RGB mix with `button.hover` alpha | None | `button.on` | `button.on` | `current_container().divider` |
 | Active | Filled | Resting | `accent_button.base` | None | `accent_button.on` | `accent_button.on` | `current_container().divider` |
 | Active | Filled | Hovered | `accent_button.hover` | None | `accent_button.on` | `accent_button.on` | `current_container().divider` |
 | Active | Outlined | Resting | None | `accent_button.base`, width `W` | `accent_text`, falling back to `accent_button.base` | `current_container().component.on` | `accent_text`, falling back to `accent_button.base` |
 | Active | Outlined | Hovered | `accent_button.hover` | None | `accent_button.on` | `accent_button.on` | `accent_button.on` |
-| Urgent | Filled | Resting | `palette.neutral_3` | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
-| Urgent | Filled | Hovered | `current_container().component.hover` at native alpha | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
+| Urgent | Filled | Resting | `button.base` | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
+| Urgent | Filled | Hovered | `button.hover` | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
 | Urgent | Outlined | Resting | None | `destructive_button.base`, width `W` | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
-| Urgent | Outlined | Hovered | `current_container().component.hover` at native alpha | `destructive_button.base`, width `W` | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
+| Urgent | Outlined | Hovered | `button.hover` | `destructive_button.base`, width `W` | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
 
 Hovered outlined active and inactive pills remove their border after filling to
 avoid a visible seam. Urgent pills keep their destructive border on hover. If a
 workspace is both active and urgent, active styling takes precedence.
 
-Inactive pill colors are always fully opaque. The contrast control changes the
-color itself rather than blending it with the panel, which keeps the result
-stable on transparent and frosted-glass panels. At 0%, a resting pill matches
-the current container's base color; at 100%, it reaches the component border
-color.
+The inactive pill contrast control changes the RGB color while COSMIC's
+standard `button.base` and `button.hover` tokens provide the alpha. This keeps
+the full configurable color range while allowing transparent and frosted-glass
+panels to remain visible through both filled pills and outlined pill borders.
+At 0%, a resting pill uses the current container's base RGB; at 100%, it reaches
+the component border RGB.
 
 ## Install From Source
 
