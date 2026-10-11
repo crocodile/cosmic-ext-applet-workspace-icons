@@ -1856,10 +1856,10 @@ mod tests {
     }
 
     #[test]
-    fn brightness_is_clamped_to_fifty_percent_in_either_direction() {
-        assert_eq!(inactive_pill_brightness_percent(i8::MIN), -50);
+    fn brightness_is_clamped_to_seventy_five_percent_in_either_direction() {
+        assert_eq!(inactive_pill_brightness_percent(i8::MIN), -75);
         assert_eq!(inactive_pill_brightness_percent(0), 0);
-        assert_eq!(inactive_pill_brightness_percent(i8::MAX), 50);
+        assert_eq!(inactive_pill_brightness_percent(i8::MAX), 75);
     }
 
     #[test]

@@ -31,7 +31,7 @@ number so you can see where windows are at a glance.
 Pill colors use semantic COSMIC theme tokens, so their rendered values follow
 the user's current theme. In the table below, `brighten(C, P)` adjusts only the
 Oklab lightness of color `C` by the configured inactive pill brightness `P`
-(−50% to +50%), preserving its alpha. `W` is the configured outline thickness.
+(−75% to +75%), preserving its alpha. `W` is the configured outline thickness.
 
 | State | Mode | Interaction | Fill | Border | Workspace number | Other foreground | Separator |
 |---|---|---|---|---|---|---|---|
