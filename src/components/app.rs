@@ -666,6 +666,10 @@ impl IcedWorkspacesApplet {
         };
         let text_color = if urgent {
             destructive
+        } else if active && outlined_mode && !hovered {
+            // An outlined active pill has no accent fill at rest. Keep overflow
+            // text and symbolic icons readable against the panel background.
+            theme.current_container().component.on.into()
         } else {
             component.on.into()
         };
@@ -1746,7 +1750,9 @@ mod tests {
         assert_eq!(style.background, None);
         assert_eq!(style.border.color, theme.cosmic().accent_button.base.into());
         assert_eq!(style.border.width, TEST_OUTLINED_BORDER_WIDTH);
-        assert_eq!(style.text_color, Some(theme.cosmic().accent_button.on.into()));
+        let panel_foreground = theme.current_container().component.on.into();
+        assert_eq!(style.text_color, Some(panel_foreground));
+        assert_eq!(style.icon_color, Some(panel_foreground));
     }
 
     #[test]
@@ -1765,6 +1771,7 @@ mod tests {
         assert_eq!(style.background, Some(Background::Color(expected)));
         assert_eq!(style.border.color, theme.cosmic().accent_button.hover.into());
         assert_eq!(style.text_color, Some(theme.cosmic().accent_button.on.into()));
+        assert_eq!(style.icon_color, Some(theme.cosmic().accent_button.on.into()));
         assert_eq!(style.border.width, 0.0);
     }
 

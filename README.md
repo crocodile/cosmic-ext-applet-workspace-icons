@@ -41,7 +41,7 @@ Oklab lightness of color `C` by the configured inactive pill brightness `P`
 | Inactive | Outlined | Hovered | `brighten(button.hover, P)` | None | `button.on` | `button.on` | `current_container().divider` |
 | Active | Filled | Resting | `accent_button.base` | None | `accent_button.on` | `accent_button.on` | `current_container().divider` |
 | Active | Filled | Hovered | `accent_button.hover` | None | `accent_button.on` | `accent_button.on` | `current_container().divider` |
-| Active | Outlined | Resting | None | `accent_button.base`, width `W` | `accent_text`, falling back to `accent_button.base` | `accent_button.on` | `accent_text`, falling back to `accent_button.base` |
+| Active | Outlined | Resting | None | `accent_button.base`, width `W` | `accent_text`, falling back to `accent_button.base` | `current_container().component.on` | `accent_text`, falling back to `accent_button.base` |
 | Active | Outlined | Hovered | `accent_button.hover` | None | `accent_button.on` | `accent_button.on` | `accent_button.on` |
 | Urgent | Filled | Resting | `button.base` | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
 | Urgent | Filled | Hovered | `button.hover` | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
