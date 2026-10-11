@@ -41,19 +41,21 @@ Oklab lightness of color `C` by the configured inactive pill brightness `P`
 | Inactive | Outlined | Hovered | `brighten(button.hover, P)` | None | `button.on` | `button.on` | `current_container().divider` |
 | Active | Filled | Resting | `accent_button.base` | None | `accent_button.on` | `accent_button.on` | `current_container().divider` |
 | Active | Filled | Hovered | `accent_button.hover` | None | `accent_button.on` | `accent_button.on` | `current_container().divider` |
-| Active | Outlined | Resting | None | `accent_button.base`, width `W` | `accent_text`, falling back to `accent_button.base` | `current_container().component.on` | `accent_text`, falling back to `accent_button.base` |
+| Active | Outlined | Resting | None | `accent_button.base`, width `W` | `accent_text`, falling back to `accent_button.base` | `accent_button.on` | `accent_text`, falling back to `accent_button.base` |
 | Active | Outlined | Hovered | `accent_button.hover` | None | `accent_button.on` | `accent_button.on` | `accent_button.on` |
 | Urgent | Filled | Resting | `button.base` | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
 | Urgent | Filled | Hovered | `button.hover` | `destructive_button.base`, 1 px | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
 | Urgent | Outlined | Resting | None | `destructive_button.base`, width `W` | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
 | Urgent | Outlined | Hovered | `button.hover` | `destructive_button.base`, width `W` | `destructive_button.base` | `destructive_button.base` | `destructive_button.base` |
 
-Hovered outlined active and inactive pills remove their border after filling to
-avoid a visible seam. Urgent pills keep their destructive border on hover. If a
-workspace is both active and urgent, active styling takes precedence.
+The **Active filled** option combines a filled active pill with outlined inactive
+pills. Hovered outlined active and inactive pills remove their border after
+filling to avoid a visible seam. Urgent pills keep their destructive border on
+hover. If a workspace is both active and urgent, active styling takes
+precedence.
 
-At 0%, inactive pills use COSMIC's `button.base` and `button.hover` colors
-exactly. Negative brightness moves their lightness partway toward black;
+At 0%, ordinary inactive pills use COSMIC's `button.base` and `button.hover`
+colors exactly. Negative brightness moves their lightness partway toward black;
 positive brightness moves it partway toward white. The button tokens' alpha is
 unchanged, so transparent and frosted-glass panels remain visible through the
 pills. The previous inactive pill contrast setting does not migrate; brightness
