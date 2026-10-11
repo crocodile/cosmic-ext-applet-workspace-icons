@@ -20,6 +20,7 @@ pub const INACTIVE_PILL_CONTRAST_STEP_PERCENT: u8 = 5;
 
 const LEGACY_INACTIVE_PILL_OPACITY_KEY: &str = "inactive_pill_opacity_percent";
 const INACTIVE_PILL_CONTRAST_KEY: &str = "inactive_pill_contrast_percent";
+const INACTIVE_PILL_STYLE_KEY: &str = "inactive_pill_style";
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum WorkspacePillStyle {
@@ -37,6 +38,7 @@ pub struct WorkspacesAppletConfig {
     pub show_one_icon_per_application: bool,
     pub max_visible_icons: u8,
     pub pill_style: WorkspacePillStyle,
+    pub inactive_pill_style: WorkspacePillStyle,
     pub pill_border_width: u8,
     pub pill_spacing_percent: u8,
     pub inactive_pill_contrast_percent: u8,
@@ -50,6 +52,7 @@ impl Default for WorkspacesAppletConfig {
             show_one_icon_per_application: true,
             max_visible_icons: DEFAULT_VISIBLE_ICONS,
             pill_style: WorkspacePillStyle::Filled,
+            inactive_pill_style: WorkspacePillStyle::Filled,
             pill_border_width: DEFAULT_PILL_BORDER_WIDTH,
             pill_spacing_percent: 0,
             inactive_pill_contrast_percent: DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
@@ -68,6 +71,14 @@ impl WorkspacesAppletConfig {
             config.get::<u8>(INACTIVE_PILL_CONTRAST_KEY),
             Err(Error::NotFound | Error::NoConfigDirectory)
         );
+        let needs_pill_style_migration = matches!(
+            config.get::<WorkspacePillStyle>(INACTIVE_PILL_STYLE_KEY),
+            Err(Error::NotFound | Error::NoConfigDirectory)
+        );
+
+        if needs_pill_style_migration {
+            entry.inactive_pill_style = entry.pill_style;
+        }
 
         if needs_migration {
             match config.get_local::<u8>(LEGACY_INACTIVE_PILL_OPACITY_KEY) {
@@ -86,7 +97,7 @@ impl WorkspacesAppletConfig {
         let needs_clamping = clamped_contrast != entry.inactive_pill_contrast_percent;
         entry.inactive_pill_contrast_percent = clamped_contrast;
 
-        if (needs_migration || needs_clamping)
+        if (needs_migration || needs_pill_style_migration || needs_clamping)
             && let Err(error) = entry.write_entry(config)
         {
             errors.push(error);
@@ -185,6 +196,55 @@ mod tests {
         assert!(errors.is_empty());
         assert!(loaded.show_one_icon_per_application);
         assert_eq!(loaded.max_visible_icons, DEFAULT_VISIBLE_ICONS);
+    }
+
+    #[test]
+    fn migrates_an_existing_outlined_style_to_both_pills() {
+        let directory = tempfile::tempdir().expect("temporary config directory");
+        let config = Config::with_custom_path(
+            APP_ID,
+            WorkspacesAppletConfig::VERSION,
+            directory.path().to_path_buf(),
+        )
+        .expect("version three config");
+        config
+            .set("pill_style", WorkspacePillStyle::Outlined)
+            .expect("existing outlined style");
+
+        let (loaded, errors) = WorkspacesAppletConfig::load(&config);
+
+        assert!(errors.is_empty());
+        assert_eq!(loaded.pill_style, WorkspacePillStyle::Outlined);
+        assert_eq!(loaded.inactive_pill_style, WorkspacePillStyle::Outlined);
+        assert_eq!(
+            config
+                .get_local::<WorkspacePillStyle>("inactive_pill_style")
+                .expect("migrated inactive style"),
+            WorkspacePillStyle::Outlined
+        );
+    }
+
+    #[test]
+    fn preserves_an_explicit_mixed_style() {
+        let directory = tempfile::tempdir().expect("temporary config directory");
+        let config = Config::with_custom_path(
+            APP_ID,
+            WorkspacesAppletConfig::VERSION,
+            directory.path().to_path_buf(),
+        )
+        .expect("version three config");
+        config
+            .set("pill_style", WorkspacePillStyle::Filled)
+            .expect("active style");
+        config
+            .set("inactive_pill_style", WorkspacePillStyle::Outlined)
+            .expect("inactive style");
+
+        let (loaded, errors) = WorkspacesAppletConfig::load(&config);
+
+        assert!(errors.is_empty());
+        assert_eq!(loaded.pill_style, WorkspacePillStyle::Filled);
+        assert_eq!(loaded.inactive_pill_style, WorkspacePillStyle::Outlined);
     }
 
     #[test]
