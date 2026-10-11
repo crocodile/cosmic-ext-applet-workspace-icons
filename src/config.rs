@@ -11,6 +11,9 @@ pub const MIN_PILL_BORDER_WIDTH: u8 = 0;
 pub const DEFAULT_PILL_BORDER_WIDTH: u8 = 2;
 pub const MAX_PILL_BORDER_WIDTH: u8 = 3;
 pub const MAX_PILL_SPACING_PERCENT: u8 = 10;
+pub const MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT: i8 = -50;
+pub const MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT: i8 = 50;
+pub const INACTIVE_PILL_BRIGHTNESS_STEP: i8 = 5;
 pub const MIN_VISIBLE_ICONS: u8 = 1;
 pub const DEFAULT_VISIBLE_ICONS: u8 = 5;
 pub const MAX_VISIBLE_ICONS: u8 = 16;
@@ -41,6 +44,7 @@ pub struct WorkspacesAppletConfig {
     pub inactive_pill_style: WorkspacePillStyle,
     pub pill_border_width: u8,
     pub pill_spacing_percent: u8,
+    pub inactive_pill_brightness_percent: i8,
 }
 
 impl Default for WorkspacesAppletConfig {
@@ -54,6 +58,7 @@ impl Default for WorkspacesAppletConfig {
             inactive_pill_style: WorkspacePillStyle::Filled,
             pill_border_width: DEFAULT_PILL_BORDER_WIDTH,
             pill_spacing_percent: 0,
+            inactive_pill_brightness_percent: 0,
         }
     }
 }
@@ -113,7 +118,7 @@ mod tests {
         DEFAULT_VISIBLE_ICONS, WorkspacePillStyle,
         WorkspacesAppletConfig,
     };
-    use cosmic_config::{Config, CosmicConfigEntry};
+    use cosmic_config::{Config, ConfigSet, CosmicConfigEntry};
 
     #[test]
     fn uses_filled_pills_by_default() {
@@ -128,6 +133,14 @@ mod tests {
         assert_eq!(
             WorkspacesAppletConfig::default().pill_border_width,
             DEFAULT_PILL_BORDER_WIDTH
+        );
+    }
+
+    #[test]
+    fn uses_zero_inactive_pill_brightness_by_default() {
+        assert_eq!(
+            WorkspacesAppletConfig::default().inactive_pill_brightness_percent,
+            0
         );
     }
 

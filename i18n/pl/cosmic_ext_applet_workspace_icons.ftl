@@ -10,5 +10,5 @@ pill-style-custom = Własny
 pill-style-outlined = Wszystkie obrysowane
 pill-outline-thickness = Grubość obrysu
 pill-spacing = Odstępy między wskaźnikami
-inactive-pill-contrast = Kontrast nieaktywnych wskaźników
+inactive-pill-brightness = Jasność nieaktywnych wskaźników
 version = Wersja
