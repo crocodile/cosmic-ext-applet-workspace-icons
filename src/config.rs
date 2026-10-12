@@ -30,6 +30,7 @@ pub enum WorkspacePillStyle {
 #[version = 4]
 #[serde(default)]
 pub struct WorkspacesAppletConfig {
+    pub show_workspace_numbers: bool,
     pub dim_minimized_window_icons: bool,
     pub highlight_maximized_window_icons: bool,
     pub show_one_icon_per_application: bool,
@@ -44,6 +45,7 @@ pub struct WorkspacesAppletConfig {
 impl Default for WorkspacesAppletConfig {
     fn default() -> Self {
         Self {
+            show_workspace_numbers: true,
             dim_minimized_window_icons: true,
             highlight_maximized_window_icons: true,
             show_one_icon_per_application: true,
@@ -88,6 +90,47 @@ mod tests {
         WorkspacesAppletConfig,
     };
     use cosmic_config::{Config, ConfigGet, ConfigSet, CosmicConfigEntry};
+
+    #[test]
+    fn preserves_number_visibility_when_loading_old_settings() {
+        let directory = tempfile::tempdir().expect("temporary config directory");
+        let config = Config::with_custom_path(
+            APP_ID,
+            WorkspacesAppletConfig::VERSION,
+            directory.path().to_path_buf(),
+        )
+        .expect("config");
+        config.set("max_visible_icons", 8_u8).unwrap();
+
+        let (loaded, errors) = WorkspacesAppletConfig::load(&config);
+
+        assert!(errors.is_empty());
+        assert!(loaded.show_workspace_numbers);
+        assert_eq!(loaded.max_visible_icons, 8);
+        let deserialized: WorkspacesAppletConfig = serde_json::from_str("{}").unwrap();
+        assert!(deserialized.show_workspace_numbers);
+    }
+
+    #[test]
+    fn persists_both_number_visibility_settings() {
+        let directory = tempfile::tempdir().expect("temporary config directory");
+        let config = Config::with_custom_path(
+            APP_ID,
+            WorkspacesAppletConfig::VERSION,
+            directory.path().to_path_buf(),
+        )
+        .expect("config");
+        for enabled in [false, true] {
+            let entry = WorkspacesAppletConfig {
+                show_workspace_numbers: enabled,
+                ..Default::default()
+            };
+            entry.write_entry(&config).unwrap();
+            let (loaded, errors) = WorkspacesAppletConfig::load(&config);
+            assert!(errors.is_empty());
+            assert_eq!(loaded.show_workspace_numbers, enabled);
+        }
+    }
 
     #[test]
     fn uses_filled_pills_by_default() {
