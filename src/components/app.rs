@@ -78,11 +78,6 @@ const URGENT_FILLED_BORDER_WIDTH: f32 = 1.0;
 const VERSION_TEXT_OPACITY: f32 = 0.45;
 const XL_ICON_SIZE_THRESHOLD: f32 = 40.0;
 const XL_WORKSPACE_NUMBER_FONT_SIZE: f32 = 33.0;
-const EMPTY_WORKSPACE_ICON_VIEWBOX_SIZE: f32 = 24.0;
-const EMPTY_WORKSPACE_DOT_RADIUS: f32 = 4.0;
-const COSMIC_PIN_ICON_VIEWBOX_SIZE: f32 = 16.0;
-const COSMIC_PIN_GLYPH_DIAMETER: f32 = 13.0;
-const PIN_OPTICAL_SCALE: f32 = 1.1;
 const DECREASE_ICON_SVG: &[u8] = br##"
 <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
   <rect x="3" y="7" width="10" height="2" rx="1" fill="#000"/>
@@ -97,7 +92,13 @@ const INCREASE_ICON_SVG: &[u8] = br##"
 
 const PIN_ICON_SVG: &[u8] = br##"
 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path transform="rotate(45 12 12)" d="M8 3h8v2h-1v6l3 3v2h-5v5l-1 2-1-2v-5H6v-2l3-3V5H8z" fill="#000"/>
+  <defs>
+    <mask id="pin-cutout" maskUnits="userSpaceOnUse" x="8" y="8" width="8" height="8">
+      <rect x="8" y="8" width="8" height="8" fill="#fff"/>
+      <path transform="matrix(.25 .25 -.25 .25 11.75 6.25)" d="M8 3h8v2h-1v6l3 3v2h-5v5l-1 2-1-2v-5H6v-2l3-3V5H8z" fill="#000"/>
+    </mask>
+  </defs>
+  <circle cx="12" cy="12" r="4" fill="#000" mask="url(#pin-cutout)"/>
 </svg>
 "##;
 const EMPTY_WORKSPACE_ICON_SVG: &[u8] = br##"
@@ -132,17 +133,6 @@ fn workspace_indicator(
     } else {
         WorkspaceIndicator::Empty
     }
-}
-
-fn empty_workspace_dot_diameter(icon_size: f32) -> f32 {
-    f32::from(icon_size as u16) * (EMPTY_WORKSPACE_DOT_RADIUS * 2.0)
-        / EMPTY_WORKSPACE_ICON_VIEWBOX_SIZE
-}
-
-fn empty_workspace_pin_size(icon_size: f32) -> f32 {
-    empty_workspace_dot_diameter(icon_size) * COSMIC_PIN_ICON_VIEWBOX_SIZE
-        / COSMIC_PIN_GLYPH_DIAMETER
-        * PIN_OPTICAL_SCALE
 }
 
 fn app_group_leading_padding(show_numbers: bool) -> f32 {
@@ -1240,19 +1230,8 @@ impl IcedWorkspacesApplet {
         let content: Element<'_, Message> = match indicator {
             WorkspaceIndicator::None => app_group,
             WorkspaceIndicator::Pin => {
-                let handle = cosmic::widget::icon::from_name("pin-symbolic")
-                    .fallback(None)
-                    .path()
-                    .map(|path| {
-                        let mut handle = cosmic::widget::icon::from_path(path);
-                        handle.symbolic = true;
-                        handle
-                    })
-                    .unwrap_or_else(|| symbolic_svg_icon(PIN_ICON_SVG));
-                let pin_size = empty_workspace_pin_size(icon_size);
-                cosmic::widget::icon(handle)
-                    .width(Length::Fixed(pin_size))
-                    .height(Length::Fixed(pin_size))
+                cosmic::widget::icon(symbolic_svg_icon(PIN_ICON_SVG))
+                    .size(icon_size as u16)
                     .into()
             }
             WorkspaceIndicator::Plus | WorkspaceIndicator::Empty => {
@@ -1440,7 +1419,6 @@ mod tests {
         MIN_PILL_BORDER_WIDTH, Theme, URGENT_FILLED_BORDER_WIDTH, WORKSPACE_CONTENT_PADDING,
         WORKSPACE_CONTENT_SPACING, WORKSPACE_LIST_EDGE_PADDING, WorkspaceApp, WorkspaceIndicator,
         WorkspaceWindowState, app_group_leading_padding, display_icons,
-        empty_workspace_dot_diameter, empty_workspace_pin_size,
         inactive_pill_brightness_percent, inactive_pill_color, informative_titles,
         occupied_number_section_major_size, oriented_padding, pill_border_width,
         pill_spacing_percent, should_retain_toplevel_placement, visible_icon_counts,
@@ -1473,15 +1451,6 @@ mod tests {
                 workspace_indicator(false, has_icons, pinned, is_last),
                 expected
             );
-        }
-    }
-
-    #[test]
-    fn pin_is_slightly_larger_than_the_empty_workspace_dot() {
-        for icon_size in [16.0, 20.8, 33.28, 41.6] {
-            let dot_diameter = empty_workspace_dot_diameter(icon_size);
-            let visible_pin_diameter = empty_workspace_pin_size(icon_size) * 13.0 / 16.0;
-            assert!((visible_pin_diameter - dot_diameter * 1.1).abs() < 0.001);
         }
     }
 
