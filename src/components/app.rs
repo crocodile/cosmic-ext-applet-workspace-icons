@@ -90,11 +90,6 @@ const INCREASE_ICON_SVG: &[u8] = br##"
 </svg>
 "##;
 
-const PIN_ICON_SVG: &[u8] = br##"
-<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path transform="rotate(45 12 12)" d="M8 3h8v2h-1v6l3 3v2h-5v5l-1 2-1-2v-5H6v-2l3-3V5H8z" fill="#000"/>
-</svg>
-"##;
 const EMPTY_WORKSPACE_ICON_SVG: &[u8] = br##"
 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <circle cx="12" cy="12" r="4" fill="#000"/>
@@ -105,7 +100,6 @@ const EMPTY_WORKSPACE_ICON_SVG: &[u8] = br##"
 enum WorkspaceIndicator {
     Label,
     None,
-    Pin,
     Plus,
     Empty,
 }
@@ -120,9 +114,7 @@ fn workspace_indicator(
         WorkspaceIndicator::Label
     } else if has_icons {
         WorkspaceIndicator::None
-    } else if pinned {
-        WorkspaceIndicator::Pin
-    } else if is_last {
+    } else if !pinned && is_last {
         WorkspaceIndicator::Plus
     } else {
         WorkspaceIndicator::Empty
@@ -1223,18 +1215,6 @@ impl IcedWorkspacesApplet {
         );
         let content: Element<'_, Message> = match indicator {
             WorkspaceIndicator::None => app_group,
-            WorkspaceIndicator::Pin => {
-                let handle = cosmic::widget::icon::from_name("pin-symbolic")
-                    .fallback(None)
-                    .path()
-                    .map(|path| {
-                        let mut handle = cosmic::widget::icon::from_path(path);
-                        handle.symbolic = true;
-                        handle
-                    })
-                    .unwrap_or_else(|| symbolic_svg_icon(PIN_ICON_SVG));
-                cosmic::widget::icon(handle).size(icon_size as u16).into()
-            }
             WorkspaceIndicator::Plus | WorkspaceIndicator::Empty => {
                 let svg = match indicator {
                     WorkspaceIndicator::Plus => INCREASE_ICON_SVG,
@@ -1315,7 +1295,7 @@ impl IcedWorkspacesApplet {
         // Empty-workspace symbols take the same foreground as the number they replace.
         let content = if matches!(
             indicator,
-            WorkspaceIndicator::Pin | WorkspaceIndicator::Plus | WorkspaceIndicator::Empty
+            WorkspaceIndicator::Plus | WorkspaceIndicator::Empty
         ) {
             container(content)
                 .class(ContainerClass::Custom(Box::new(move |theme| {
@@ -1436,8 +1416,8 @@ mod tests {
         let cases = [
             (false, false, false, WorkspaceIndicator::Empty),
             (false, false, true, WorkspaceIndicator::Plus),
-            (false, true, false, WorkspaceIndicator::Pin),
-            (false, true, true, WorkspaceIndicator::Pin),
+            (false, true, false, WorkspaceIndicator::Empty),
+            (false, true, true, WorkspaceIndicator::Empty),
             (true, false, false, WorkspaceIndicator::None),
             (true, false, true, WorkspaceIndicator::None),
             (true, true, false, WorkspaceIndicator::None),

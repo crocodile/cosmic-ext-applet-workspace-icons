@@ -94,7 +94,7 @@
       <description>
         <ul>
           <li>Add an option to hide workspace numbers.</li>
-          <li>Show clear pin, plus, and dot indicators for empty workspaces when numbers are hidden.</li>
+          <li>Show clear plus and dot indicators for empty workspaces when numbers are hidden.</li>
           <li>Improve workspace pill sizing, colours, and readability.</li>
         </ul>
       </description>
