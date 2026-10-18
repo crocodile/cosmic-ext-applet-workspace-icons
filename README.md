@@ -43,9 +43,11 @@ last. The last unpinned workspace shows a `+`. The last workspace is determined
 per monitor, before panel-space clipping (bottommost on vertical panels). An
 empty active workspace can remain before later workspaces until you switch away.
 Hover over an empty workspace to see its name and pinned/empty status.
-These symbols and the `+N` application overflow count use the same colors as
-workspace numbers, including active, urgent, and hover states, even when
-workspace numbers are hidden.
+The dot and `+` match the pill's outline color when outlined, including the
+configured inactive brightness. Inactive filled pills cut these symbols out of
+the fill so the panel shows through, including when an outlined pill fills on
+hover. Focused filled pills keep their existing symbol color. The `+N`
+application overflow count continues to use the same colors as workspace numbers.
 
 These symbols retain normal workspace behavior: clicking an inactive workspace
 switches to it, and clicking the active workspace opens the overview. The `+`
@@ -58,7 +60,7 @@ the user's current theme. In the table below, `brighten(C, P)` adjusts only the
 Oklab lightness of color `C` by the configured inactive pill brightness `P`
 (−75% to +75%), preserving its alpha. `W` is the configured outline thickness.
 
-| State | Mode | Interaction | Fill | Border | Workspace number / +N / placeholder | Symbolic application icons | Separator |
+| State | Mode | Interaction | Fill | Border | Workspace number / +N | Symbolic application icons | Separator |
 |---|---|---|---|---|---|---|---|
 | Inactive | Filled | Resting | `brighten(button.base, P)` | None | `button.on` | `button.on` | `current_container().divider` |
 | Inactive | Filled | Hovered | `brighten(button.hover, P)` | None | `button.on` | `button.on` | `current_container().divider` |
