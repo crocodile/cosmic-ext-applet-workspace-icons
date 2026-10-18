@@ -114,6 +114,59 @@ impl WorkspaceIndicator {
     }
 }
 
+fn workspace_svg(handle: svg::Handle, color: Color) -> svg::Svg {
+    // Iced's SVG tint only applies RGB. Apply the theme alpha as image opacity.
+    svg::Svg::new(handle)
+        .color(Color { a: 1.0, ..color })
+        .opacity(color.a)
+}
+
+struct WorkspaceSymbol {
+    handle: svg::Handle,
+    size: f32,
+}
+
+impl<Message> Widget<Message, Theme, cosmic::Renderer> for WorkspaceSymbol {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fixed(self.size), Length::Fixed(self.size))
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut Tree,
+        _renderer: &cosmic::Renderer,
+        limits: &iced_layout::Limits,
+    ) -> iced_layout::Node {
+        iced_layout::Node::new(limits.resolve(
+            Length::Fixed(self.size),
+            Length::Fixed(self.size),
+            Size::ZERO,
+        ))
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut cosmic::Renderer,
+        _theme: &Theme,
+        style: &renderer::Style,
+        layout: IcedLayout<'_>,
+        _cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use cosmic::iced::core::svg::Renderer as _;
+
+        let bounds = layout.bounds();
+        if let Some(clip) = bounds.intersection(viewport) {
+            renderer.draw_svg(
+                workspace_svg(self.handle.clone(), style.icon_color),
+                bounds,
+                clip,
+            );
+        }
+    }
+}
+
 fn workspace_symbol_is_cutout(
     active: bool,
     inactive_pill_style: WorkspacePillStyle,
@@ -213,7 +266,7 @@ impl<Message> Widget<Message, Theme, cosmic::Renderer> for WorkspacePillBackgrou
                 )
                 .into_bytes(),
             );
-            renderer.draw_svg(svg::Svg::new(handle).color(color), bounds, clip);
+            renderer.draw_svg(workspace_svg(handle, color), bounds, clip);
             background = Background::Color(Color::TRANSPARENT);
         }
         renderer.fill_quad(
@@ -1360,9 +1413,10 @@ impl IcedWorkspacesApplet {
                 space::horizontal().into()
             }
             WorkspaceIndicator::Plus | WorkspaceIndicator::Empty => {
-                cosmic::widget::icon(symbolic_svg_icon(indicator.symbol_svg()))
-                    .size(icon_size as u16)
-                    .into()
+                Element::new(WorkspaceSymbol {
+                    handle: svg::Handle::from_memory(indicator.symbol_svg()),
+                    size: f32::from(icon_size as u16),
+                })
             }
             WorkspaceIndicator::Label => {
                 let number_section_size = self.number_section_major_size(!icons.is_empty());
@@ -2268,6 +2322,114 @@ mod tests {
                         let symbol = IcedWorkspacesApplet::workspace_symbol_style(pill);
                         assert_eq!(symbol.icon_color, Some(pill.border.color));
                         assert_eq!(symbol.text_color, Some(pill.border.color));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn renders_symbols_and_cutout_fills_with_the_same_opacity_as_native_pills() {
+        use super::{
+            ContainerClass, Element, IcedLayout, Length, Rectangle, Size, Tree,
+            WorkspacePillBackground, WorkspaceSymbol, container, iced_layout, mouse, renderer, svg,
+        };
+        use cosmic::iced::{Font, Pixels, Point};
+        use renderer::{Headless as _, Renderer as _};
+
+        let mut renderer = futures::executor::block_on(
+            <cosmic::Renderer as renderer::Headless>::new(
+                Font::DEFAULT,
+                Pixels(16.0),
+                Some("tiny-skia"),
+            ),
+        )
+        .expect("software renderer");
+        let viewport = Rectangle::with_size(Size::new(88.0, 40.0));
+        let panel = Color::from_rgb8(61, 79, 111);
+
+        for theme in [Theme::dark(), Theme::light()] {
+            for brightness in [-75, 0, 75] {
+                for indicator in [WorkspaceIndicator::Empty, WorkspaceIndicator::Plus] {
+                    for cutout in [false, true] {
+                        renderer.reset(viewport);
+                        let style = if cutout {
+                            WorkspacePillStyle::Filled
+                        } else {
+                            WorkspacePillStyle::Outlined
+                        };
+                        let pill = IcedWorkspacesApplet::workspace_pill_style(
+                            &theme,
+                            false,
+                            false,
+                            false,
+                            style,
+                            style,
+                            3.0,
+                            brightness,
+                        );
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle::with_size(Size::new(40.0, 40.0)),
+                                border: pill.border,
+                                ..Default::default()
+                            },
+                            pill.background
+                                .unwrap_or(Background::Color(Color::TRANSPARENT)),
+                        );
+                        let mut visual: Element<'_, ()> = if cutout {
+                            Element::new(WorkspacePillBackground {
+                                style: Box::new(move |_| pill),
+                                cutout: Some((indicator, 24.0)),
+                            })
+                        } else {
+                            container(Element::new(WorkspaceSymbol {
+                                handle: svg::Handle::from_memory(indicator.symbol_svg()),
+                                size: 24.0,
+                            }))
+                            .center_x(Length::Fixed(40.0))
+                            .center_y(Length::Fixed(40.0))
+                            .class(ContainerClass::Custom(Box::new(move |_| {
+                                IcedWorkspacesApplet::workspace_symbol_style(pill)
+                            })))
+                            .into()
+                        };
+                        let mut tree = Tree::new(&visual);
+                        let layout = visual
+                            .as_widget_mut()
+                            .layout(
+                                &mut tree,
+                                &renderer,
+                                &iced_layout::Limits::new(Size::ZERO, Size::new(40.0, 40.0)),
+                            )
+                            .move_to(Point::new(48.0, 0.0));
+                        visual.as_widget().draw(
+                            &tree,
+                            &mut renderer,
+                            &theme,
+                            &renderer::Style::default(),
+                            IcedLayout::new(&layout),
+                            mouse::Cursor::Unavailable,
+                            &viewport,
+                        );
+                        let pixels = renderer.screenshot(Size::new(88, 40), 1.0, panel);
+                        let pixel = |x: usize, y: usize| {
+                            &pixels[(y * 88 + x) * 4..(y * 88 + x) * 4 + 4]
+                        };
+                        let (reference, actual) = if cutout {
+                            (pixel(20, 20), pixel(53, 20))
+                        } else {
+                            (pixel(20, 1), pixel(68, 20))
+                        };
+                        for (expected, rendered) in reference.iter().zip(actual) {
+                            assert!(
+                                expected.abs_diff(*rendered) <= 1,
+                                "pill={reference:?}, svg={actual:?}, cutout={cutout}"
+                            );
+                        }
+                        if cutout {
+                            assert_eq!(pixel(68, 20), panel.into_rgba8());
+                        }
                     }
                 }
             }
