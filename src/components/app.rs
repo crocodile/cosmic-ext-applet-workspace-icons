@@ -180,16 +180,18 @@ fn workspace_cutout_svg(
     indicator: WorkspaceIndicator,
     icon_size: f32,
     size: Size,
+    fill: Rectangle,
     radii: [f32; 4],
 ) -> String {
+    let (canvas_width, canvas_height) = (size.width, size.height);
     let Size {
         width: w,
         height: h,
-    } = size;
+    } = fill.size();
     let max_radius = w.min(h) / 2.0;
     let [tl, tr, br, bl] = radii.map(|radius| radius.clamp(0.0, max_radius));
-    let x = (w - icon_size) / 2.0;
-    let y = (h - icon_size) / 2.0;
+    let x = fill.x + (w - icon_size) / 2.0;
+    let y = fill.y + (h - icon_size) / 2.0;
     let symbol = std::str::from_utf8(indicator.symbol_svg())
         .expect("embedded SVG is UTF-8")
         .replacen(
@@ -198,20 +200,76 @@ fn workspace_cutout_svg(
             1,
         );
     format!(
-        r##"<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">
-  <defs><mask id="symbol" maskUnits="userSpaceOnUse" x="0" y="0" width="{w}" height="{h}">
-    <rect width="{w}" height="{h}" fill="#fff"/>{symbol}
+        r##"<svg width="{canvas_width}" height="{canvas_height}"
+    viewBox="0 0 {canvas_width} {canvas_height}" xmlns="http://www.w3.org/2000/svg">
+  <defs><mask id="symbol" maskUnits="userSpaceOnUse" x="0" y="0"
+      width="{canvas_width}" height="{canvas_height}">
+    <rect width="{canvas_width}" height="{canvas_height}" fill="#fff"/>{symbol}
   </mask></defs>
-  <path d="M {tl} 0 H {} A {tr} {tr} 0 0 1 {w} {tr}
+  <g mask="url(#symbol)"><path transform="translate({origin_x} {origin_y})"
+    d="M {tl} 0 H {} A {tr} {tr} 0 0 1 {w} {tr}
     V {} A {br} {br} 0 0 1 {} {h}
     H {bl} A {bl} {bl} 0 0 1 0 {}
-    V {tl} A {tl} {tl} 0 0 1 {tl} 0 Z" fill="#000" mask="url(#symbol)"/>
+    V {tl} A {tl} {tl} 0 0 1 {tl} 0 Z" fill="#000"/></g>
 </svg>"##,
         w - tr,
         h - br,
         w - br,
         h - bl,
+        origin_x = fill.x,
+        origin_y = fill.y,
     )
+}
+
+fn workspace_cutout_image(
+    indicator: WorkspaceIndicator,
+    icon_size: f32,
+    bounds: Rectangle,
+    border: Border,
+    color: Color,
+    scale: f32,
+) -> Option<(svg::Svg, Rectangle)> {
+    // Match the native quad's inner fill; the urgent border stays outside it.
+    let border_width = border
+        .width
+        .min(bounds.width / 2.0)
+        .min(bounds.height / 2.0);
+    let fill = bounds.shrink(border_width);
+    if fill.width <= 0.0 || fill.height <= 0.0 {
+        return None;
+    }
+    let max_radius = fill.width.min(fill.height) / 2.0;
+    let radii = <[f32; 4]>::from(border.radius)
+        .map(|radius| (radius - border_width / 2.0).clamp(0.0, max_radius) * scale);
+
+    // SVG rasterization rounds its canvas size and position to physical pixels.
+    // Pad that canvas outwards and keep the fractional pill position inside it.
+    let left = (bounds.x * scale).floor();
+    let top = (bounds.y * scale).floor();
+    let width = ((bounds.x + bounds.width) * scale).ceil() - left;
+    let height = ((bounds.y + bounds.height) * scale).ceil() - top;
+    let x = fill.x * scale - left;
+    let y = fill.y * scale - top;
+    let source = workspace_cutout_svg(
+        indicator,
+        icon_size * scale,
+        Size::new(width, height),
+        Rectangle {
+            x,
+            y,
+            width: fill.width * scale,
+            height: fill.height * scale,
+        },
+        radii,
+    );
+    let image = workspace_svg(svg::Handle::from_memory(source.into_bytes()), color);
+    let image_bounds = Rectangle {
+        x: left / scale,
+        y: top / scale,
+        width: width / scale,
+        height: height / scale,
+    };
+    Some((image, image_bounds))
 }
 
 /// Draw the usual pill border around either a solid fill or a fill with a hole.
@@ -239,7 +297,7 @@ impl<Message> Widget<Message, Theme, cosmic::Renderer> for WorkspacePillBackgrou
         _tree: &Tree,
         renderer: &mut cosmic::Renderer,
         theme: &Theme,
-        _style: &renderer::Style,
+        renderer_style: &renderer::Style,
         layout: IcedLayout<'_>,
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
@@ -247,36 +305,44 @@ impl<Message> Widget<Message, Theme, cosmic::Renderer> for WorkspacePillBackgrou
         use cosmic::iced::core::{renderer::Renderer as _, svg::Renderer as _};
 
         let bounds = layout.bounds();
-        let Some(clip) = bounds.intersection(viewport) else {
+        if !bounds.intersects(viewport) {
             return;
-        };
+        }
         let style = (self.style)(theme);
-        let mut background = style
-            .background
-            .unwrap_or(Background::Color(Color::TRANSPARENT));
+        let quad = renderer::Quad {
+            bounds,
+            border: style.border,
+            shadow: style.shadow,
+            snap: style.snap,
+        };
         if let (Some((indicator, icon_size)), Some(Background::Color(color))) =
             (self.cutout, style.background)
         {
-            let handle = svg::Handle::from_memory(
-                workspace_cutout_svg(
-                    indicator,
-                    icon_size,
-                    bounds.size(),
-                    style.border.radius.into(),
-                )
-                .into_bytes(),
-            );
-            renderer.draw_svg(workspace_svg(handle, color), bounds, clip);
-            background = Background::Color(Color::TRANSPARENT);
+            if let Some((image, image_bounds)) = workspace_cutout_image(
+                indicator,
+                icon_size,
+                bounds,
+                style.border,
+                color,
+                renderer_style.scale_factor as f32,
+            ) {
+                renderer.with_layer(*viewport, |renderer| {
+                    renderer.draw_svg(image, image_bounds, *viewport);
+                });
+            }
+            // Separate layers preserve this order despite quad/image batching.
+            if style.border.width > 0.0 {
+                renderer.with_layer(*viewport, |renderer| {
+                    renderer.fill_quad(quad, Color::TRANSPARENT);
+                });
+            }
+            return;
         }
         renderer.fill_quad(
-            renderer::Quad {
-                bounds,
-                border: style.border,
-                shadow: style.shadow,
-                snap: style.snap,
-            },
-            background,
+            quad,
+            style
+                .background
+                .unwrap_or(Background::Color(Color::TRANSPARENT)),
         );
     }
 }
@@ -2436,6 +2502,160 @@ mod tests {
         }
     }
 
+    fn compare_cutout_with_native_pill(
+        theme: &Theme,
+        pill: cosmic::widget::container::Style,
+        bounds: cosmic::iced::Rectangle,
+        scale: f32,
+        indicator: WorkspaceIndicator,
+    ) -> (Vec<u8>, Vec<u8>, usize) {
+        use super::{Element, IcedLayout, Size, Tree, WorkspacePillBackground, mouse, renderer};
+        use cosmic::iced::{Font, Pixels};
+        use renderer::{Headless as _, Renderer as _};
+
+        let mut renderer = futures::executor::block_on(
+            <cosmic::Renderer as renderer::Headless>::new(
+                Font::DEFAULT,
+                Pixels(16.0),
+                Some("tiny-skia"),
+            ),
+        )
+        .expect("software renderer");
+        let viewport = cosmic::iced::Rectangle::with_size(Size::new(64.0, 64.0));
+        let size = Size::new((64.0 * scale) as u32, (64.0 * scale) as u32);
+        let panel = Color::from_rgb8(61, 79, 111);
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: pill.border,
+                snap: pill.snap,
+                ..Default::default()
+            },
+            pill.background
+                .unwrap_or(Background::Color(Color::TRANSPARENT)),
+        );
+        let native = renderer.screenshot(size, scale, panel);
+        renderer.reset(viewport);
+        let visual: Element<'_, ()> = Element::new(WorkspacePillBackground {
+            style: Box::new(move |_| pill),
+            cutout: Some((indicator, 24.0)),
+        });
+        let tree = Tree::new(&visual);
+        let layout = super::iced_layout::Node::new(bounds.size()).move_to(bounds.position());
+        visual.as_widget().draw(
+            &tree,
+            &mut renderer,
+            theme,
+            &renderer::Style {
+                scale_factor: f64::from(scale),
+                ..Default::default()
+            },
+            IcedLayout::new(&layout),
+            mouse::Cursor::Unavailable,
+            &viewport,
+        );
+        let actual = renderer.screenshot(size, scale, panel);
+        (native, actual, size.width as usize)
+    }
+
+    #[test]
+    fn cutout_pills_preserve_urgent_border_colors() {
+        for theme in [Theme::dark(), Theme::light()] {
+            for (mode, hovered) in [
+                (WorkspacePillStyle::Filled, false),
+                (WorkspacePillStyle::Filled, true),
+                (WorkspacePillStyle::Outlined, true),
+            ] {
+                let pill = test_pill_style(&theme, false, true, hovered, mode, mode);
+                let bounds = cosmic::iced::Rectangle {
+                    x: 8.0,
+                    y: 8.0,
+                    width: 40.0,
+                    height: 40.0,
+                };
+                for indicator in [WorkspaceIndicator::Empty, WorkspaceIndicator::Plus] {
+                    for scale in [1.0, 1.25, 1.5, 2.0] {
+                        let (native, actual, width) =
+                            compare_cutout_with_native_pill(&theme, pill, bounds, scale, indicator);
+                        let start = (8.0 * scale) as usize;
+                        let end = (48.0 * scale) as usize - 1;
+                        let center = (28.0 * scale) as usize;
+                        // Compare the middle of each straight border segment.
+                        for (x, y) in [
+                            (center, start),
+                            (center, end),
+                            (start, center),
+                            (end, center),
+                        ] {
+                            let offset = (y * width + x) * 4;
+                            assert_eq!(
+                                &native[offset..offset + 4],
+                                &actual[offset..offset + 4],
+                                "urgent border changed for {mode:?} at ({x}, {y}), scale={scale}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cutout_pill_edges_follow_fractional_bounds_and_display_scale() {
+        for theme in [Theme::dark(), Theme::light()] {
+            for inset in [0.4_f32, 1.6, 4.0] {
+                for horizontal in [false, true] {
+                    let bounds = cosmic::iced::Rectangle {
+                        x: 8.0 + if horizontal { 0.0 } else { inset },
+                        y: 8.0 + if horizontal { inset } else { 0.0 },
+                        width: 40.0 - if horizontal { 0.0 } else { inset * 2.0 },
+                        height: 40.0 - if horizontal { inset * 2.0 } else { 0.0 },
+                    };
+                    let mut pill = IcedWorkspacesApplet::workspace_pill_style(
+                        &theme,
+                        false,
+                        false,
+                        false,
+                        WorkspacePillStyle::Filled,
+                        WorkspacePillStyle::Filled,
+                        2.0,
+                        75,
+                    );
+                    pill.border.radius = (bounds.width.min(bounds.height) / 2.0).into();
+                    for scale in [1.0, 1.2, 1.25, 1.5, 1.75, 2.0] {
+                        let (native, actual, width) = compare_cutout_with_native_pill(
+                            &theme,
+                            pill,
+                            bounds,
+                            scale,
+                            WorkspaceIndicator::Empty,
+                        );
+                        for (index, (expected, rendered)) in native
+                            .chunks_exact(4)
+                            .zip(actual.chunks_exact(4))
+                            .enumerate()
+                        {
+                            let x = (index % width) as f32 / scale;
+                            let y = (index / width) as f32 / scale;
+                            let center = bounds.center();
+                            if (x - center.x).abs() < 13.0 && (y - center.y).abs() < 13.0 {
+                                continue;
+                            }
+                            for (a, b) in expected.iter().zip(rendered) {
+                                // Allow small differences in curve anti-aliasing, not lost rows.
+                                assert!(
+                                    a.abs_diff(*b) <= 8,
+                                    "clipped or shifted edge at ({x}, {y}): native={expected:?}, \
+                                     cutout={rendered:?}, inset={inset}, scale={scale}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn only_inactive_filled_pills_cut_out_their_symbols() {
         for (active, style, hovered, expected) in [
@@ -2493,6 +2713,10 @@ mod tests {
                         indicator,
                         24.0,
                         super::Size::new(width as f32, height as f32),
+                        super::Rectangle::with_size(super::Size::new(
+                            width as f32,
+                            height as f32,
+                        )),
                         [radius; 4],
                     );
                     let tree = usvg::Tree::from_str(&svg, &usvg::Options::default())
