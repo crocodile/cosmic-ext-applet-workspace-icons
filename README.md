@@ -44,8 +44,8 @@ per monitor, before panel-space clipping (bottommost on vertical panels). An
 empty active workspace can remain before later workspaces until you switch away.
 Hover over an empty workspace to see its name and pinned/empty status.
 The dot and `+` match the pill's outline color when outlined, including the
-configured inactive brightness. Inactive filled pills cut these symbols out of
-the fill so the panel shows through, including when an outlined pill fills on
+configured inactive brightness and opacity. Inactive filled pills cut these
+symbols out of the fill so the panel shows through, including when an outlined pill fills on
 hover. Focused filled pills keep their existing symbol color. The `+N`
 application overflow count continues to use the same colors as workspace numbers.
 
