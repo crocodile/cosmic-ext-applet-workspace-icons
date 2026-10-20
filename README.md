@@ -19,12 +19,39 @@ number so you can see where windows are at a glance.
 ## Features
 
 - Displays application icons beside each workspace number.
+- Can hide workspace numbers and names with **Show workspace numbers**.
 - Can show separate icons for each open window by disabling application grouping.
 - Associates windows with the correct workspace and monitor.
 - Configures up to sixteen visible icons per workspace before showing an overflow count.
 - Dims minimised window icons.
 - Highlights maximised window icons.
 - Preserves workspace switching, scrolling, and workspace overview behavior.
+
+## Workspace Numbers
+
+**Show workspace numbers** is enabled by default and preserves workspace names
+assigned in COSMIC. Disable it to show only application icons and their overflow
+count, removing the number section and its divider to save panel space.
+Pills follow COSMIC's **Round**, **Slightly round**, or **Square** style with
+numbers either shown or hidden. With **Round** style, numbers hidden, and
+**Pill spacing** at 0, a single application icon sits in a circular pill,
+including when maximized highlighting is enabled. Additional icons extend the
+pill while retaining balanced end padding.
+
+Empty workspaces show a small solid dot when pinned, or when unpinned and not
+last. The last unpinned workspace shows a `+`. The last workspace is determined
+per monitor, before panel-space clipping (bottommost on vertical panels). An
+empty active workspace can remain before later workspaces until you switch away.
+Hover over an empty workspace to see its name and pinned/empty status.
+The dot and `+` match the pill's outline color when outlined, including the
+configured inactive brightness and opacity. Inactive filled pills cut these
+symbols out of the fill so the panel shows through, including when an outlined pill fills on
+hover. Focused filled pills keep their existing symbol color. The `+N`
+application overflow count continues to use the same colors as workspace numbers.
+
+These symbols retain normal workspace behavior: clicking an inactive workspace
+switches to it, and clicking the active workspace opens the overview. The `+`
+selects the existing empty workspace; it does not create another workspace.
 
 ## Pill Colors
 
@@ -33,7 +60,7 @@ the user's current theme. In the table below, `brighten(C, P)` adjusts only the
 Oklab lightness of color `C` by the configured inactive pill brightness `P`
 (−75% to +75%), preserving its alpha. `W` is the configured outline thickness.
 
-| State | Mode | Interaction | Fill | Border | Workspace number | Other foreground | Separator |
+| State | Mode | Interaction | Fill | Border | Workspace number / +N | Symbolic application icons | Separator |
 |---|---|---|---|---|---|---|---|
 | Inactive | Filled | Resting | `brighten(button.base, P)` | None | `button.on` | `button.on` | `current_container().divider` |
 | Inactive | Filled | Hovered | `brighten(button.hover, P)` | None | `button.on` | `button.on` | `current_container().divider` |
@@ -109,6 +136,11 @@ flatpak uninstall --user io.github.crocodile.cosmic-ext-applet-workspace-icons
 ```
 
 ## Development
+
+The repository includes a patched Iced software renderer to preserve fractional
+image positions. Normal builds use it automatically. See the
+[renderer notes](third_party/iced_tiny_skia/README.md) for its source revision,
+local changes, and removal instructions once the upstream fix is available.
 
 ```bash
 just build

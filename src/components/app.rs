@@ -3,6 +3,7 @@
 
 use cctk::{
     cosmic_protocols::toplevel_info::v1::client::zcosmic_toplevel_handle_v1,
+    cosmic_protocols::workspace::v2::client::zcosmic_workspace_handle_v2,
     sctk::reexports::{
         calloop::channel::SyncSender,
         protocols::ext::workspace::v1::client::ext_workspace_handle_v1::{
@@ -22,7 +23,7 @@ use cosmic::{
     iced::core::{
         Background, Border, Color, Rectangle, Size,
         layout::{self as iced_layout, Layout as IcedLayout},
-        renderer,
+        renderer, svg,
         widget::{Tree, Widget},
     },
     iced::{
@@ -60,6 +61,10 @@ use std::{
 
 static AUTOSIZE_MAIN_ID: LazyLock<Id> = LazyLock::new(|| Id::new("autosize-main"));
 
+#[cfg(test)]
+#[path = "workspace_layout_tests.rs"]
+mod workspace_layout_tests;
+
 const SCROLL_RATE_LIMIT: Duration = Duration::from_millis(200);
 const APP_ICON_SPACING: f32 = 4.0;
 const APP_GROUP_LEADING_PADDING: f32 = 4.0;
@@ -68,8 +73,7 @@ const APP_GROUP_CROSS_AXIS_PADDING: f32 = 2.0;
 const WORKSPACE_CONTENT_SPACING: f32 = 4.0;
 const WORKSPACE_BUTTON_SPACING: f32 = 4.0;
 const WORKSPACE_LIST_EDGE_PADDING: f32 = 2.0;
-const WORKSPACE_LEADING_PADDING: f32 = 8.0;
-const WORKSPACE_TRAILING_PADDING: f32 = 8.0;
+const WORKSPACE_CONTENT_PADDING: f32 = 8.0;
 const WORKSPACE_DIVIDER_WIDTH: f32 = 1.0;
 const MINIMIZED_ICON_OPACITY: f32 = 0.45;
 const MAXIMIZED_HIGHLIGHT_SCALE: f32 = 1.28;
@@ -84,11 +88,336 @@ const DECREASE_ICON_SVG: &[u8] = br##"
 </svg>
 "##;
 const INCREASE_ICON_SVG: &[u8] = br##"
-<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
   <rect x="3" y="7" width="10" height="2" rx="1" fill="#000"/>
   <rect x="7" y="3" width="2" height="10" rx="1" fill="#000"/>
 </svg>
 "##;
+
+const EMPTY_WORKSPACE_ICON_SVG: &[u8] = br##"
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="12" cy="12" r="4" fill="#000"/>
+</svg>
+"##;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceIndicator {
+    Label,
+    None,
+    Plus,
+    Empty,
+}
+
+impl WorkspaceIndicator {
+    fn symbol_svg(self) -> &'static [u8] {
+        match self {
+            Self::Plus => INCREASE_ICON_SVG,
+            Self::Empty => EMPTY_WORKSPACE_ICON_SVG,
+            _ => unreachable!("only empty-workspace symbols have SVGs"),
+        }
+    }
+}
+
+fn workspace_svg(handle: svg::Handle, color: Color) -> svg::Svg {
+    // Iced's SVG tint only applies RGB. Apply the theme alpha as image opacity.
+    svg::Svg::new(handle)
+        .color(Color { a: 1.0, ..color })
+        .opacity(color.a)
+}
+
+struct WorkspaceSymbol {
+    handle: svg::Handle,
+    size: f32,
+}
+
+impl<Message> Widget<Message, Theme, cosmic::Renderer> for WorkspaceSymbol {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fixed(self.size), Length::Fixed(self.size))
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut Tree,
+        _renderer: &cosmic::Renderer,
+        limits: &iced_layout::Limits,
+    ) -> iced_layout::Node {
+        iced_layout::Node::new(limits.resolve(
+            Length::Fixed(self.size),
+            Length::Fixed(self.size),
+            Size::ZERO,
+        ))
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut cosmic::Renderer,
+        _theme: &Theme,
+        style: &renderer::Style,
+        layout: IcedLayout<'_>,
+        _cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use cosmic::iced::core::svg::Renderer as _;
+
+        let bounds = layout.bounds();
+        if let Some(clip) = bounds.intersection(viewport) {
+            renderer.draw_svg(
+                workspace_svg(self.handle.clone(), style.icon_color),
+                bounds,
+                clip,
+            );
+        }
+    }
+}
+
+fn workspace_symbol_is_cutout(
+    active: bool,
+    inactive_pill_style: WorkspacePillStyle,
+    hovered: bool,
+) -> bool {
+    !active && (inactive_pill_style == WorkspacePillStyle::Filled || hovered)
+}
+
+/// Reuse the solid symbol as a luminance mask so the panel shows through the fill.
+fn workspace_cutout_svg(
+    indicator: WorkspaceIndicator,
+    icon_size: f32,
+    size: Size,
+    fill: Rectangle,
+    radii: [f32; 4],
+) -> String {
+    let (canvas_width, canvas_height) = (size.width, size.height);
+    let Size {
+        width: w,
+        height: h,
+    } = fill.size();
+    let max_radius = w.min(h) / 2.0;
+    let [tl, tr, br, bl] = radii.map(|radius| radius.clamp(0.0, max_radius));
+    let x = fill.x + (w - icon_size) / 2.0;
+    let y = fill.y + (h - icon_size) / 2.0;
+    let symbol = std::str::from_utf8(indicator.symbol_svg())
+        .expect("embedded SVG is UTF-8")
+        .replacen(
+            "<svg ",
+            &format!("<svg x=\"{x}\" y=\"{y}\" width=\"{icon_size}\" height=\"{icon_size}\" "),
+            1,
+        );
+    format!(
+        r##"<svg width="{canvas_width}" height="{canvas_height}"
+    viewBox="0 0 {canvas_width} {canvas_height}" xmlns="http://www.w3.org/2000/svg">
+  <defs><mask id="symbol" maskUnits="userSpaceOnUse" x="0" y="0"
+      width="{canvas_width}" height="{canvas_height}">
+    <rect width="{canvas_width}" height="{canvas_height}" fill="#fff"/>{symbol}
+  </mask></defs>
+  <g mask="url(#symbol)"><path transform="translate({origin_x} {origin_y})"
+    d="M {tl} 0 H {} A {tr} {tr} 0 0 1 {w} {tr}
+    V {} A {br} {br} 0 0 1 {} {h}
+    H {bl} A {bl} {bl} 0 0 1 0 {}
+    V {tl} A {tl} {tl} 0 0 1 {tl} 0 Z" fill="#000"/></g>
+</svg>"##,
+        w - tr,
+        h - br,
+        w - br,
+        h - bl,
+        origin_x = fill.x,
+        origin_y = fill.y,
+    )
+}
+
+fn workspace_cutout_image(
+    indicator: WorkspaceIndicator,
+    icon_size: f32,
+    bounds: Rectangle,
+    border: Border,
+    color: Color,
+    scale: f32,
+) -> Option<(svg::Svg, Rectangle)> {
+    // Match the native quad's inner fill; the urgent border stays outside it.
+    let border_width = border
+        .width
+        .min(bounds.width / 2.0)
+        .min(bounds.height / 2.0);
+    let fill = bounds.shrink(border_width);
+    if fill.width <= 0.0 || fill.height <= 0.0 {
+        return None;
+    }
+    let max_radius = fill.width.min(fill.height) / 2.0;
+    let radii = <[f32; 4]>::from(border.radius)
+        .map(|radius| (radius - border_width / 2.0).clamp(0.0, max_radius) * scale);
+
+    // SVG rasterization rounds its canvas size and position to physical pixels.
+    // Pad that canvas outwards and keep the fractional pill position inside it.
+    let left = (bounds.x * scale).floor();
+    let top = (bounds.y * scale).floor();
+    let width = ((bounds.x + bounds.width) * scale).ceil() - left;
+    let height = ((bounds.y + bounds.height) * scale).ceil() - top;
+    let x = fill.x * scale - left;
+    let y = fill.y * scale - top;
+    let source = workspace_cutout_svg(
+        indicator,
+        icon_size * scale,
+        Size::new(width, height),
+        Rectangle {
+            x,
+            y,
+            width: fill.width * scale,
+            height: fill.height * scale,
+        },
+        radii,
+    );
+    let image = workspace_svg(svg::Handle::from_memory(source.into_bytes()), color);
+    let image_bounds = Rectangle {
+        x: left / scale,
+        y: top / scale,
+        width: width / scale,
+        height: height / scale,
+    };
+    Some((image, image_bounds))
+}
+
+/// Draw the usual pill border around either a solid fill or a fill with a hole.
+struct WorkspacePillBackground<'a> {
+    style: Box<dyn Fn(&Theme) -> container::Style + 'a>,
+    cutout: Option<(WorkspaceIndicator, f32)>,
+}
+
+impl<Message> Widget<Message, Theme, cosmic::Renderer> for WorkspacePillBackground<'_> {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut Tree,
+        _renderer: &cosmic::Renderer,
+        limits: &iced_layout::Limits,
+    ) -> iced_layout::Node {
+        iced_layout::Node::new(limits.resolve(Length::Fill, Length::Fill, Size::ZERO))
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut cosmic::Renderer,
+        theme: &Theme,
+        renderer_style: &renderer::Style,
+        layout: IcedLayout<'_>,
+        _cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use cosmic::iced::core::{renderer::Renderer as _, svg::Renderer as _};
+
+        let bounds = layout.bounds();
+        if !bounds.intersects(viewport) {
+            return;
+        }
+        let style = (self.style)(theme);
+        let quad = renderer::Quad {
+            bounds,
+            border: style.border,
+            shadow: style.shadow,
+            snap: style.snap,
+        };
+        if let (Some((indicator, icon_size)), Some(Background::Color(color))) =
+            (self.cutout, style.background)
+        {
+            if let Some((image, image_bounds)) = workspace_cutout_image(
+                indicator,
+                icon_size,
+                bounds,
+                style.border,
+                color,
+                renderer_style.scale_factor as f32,
+            ) {
+                renderer.with_layer(*viewport, |renderer| {
+                    renderer.draw_svg(image, image_bounds, *viewport);
+                });
+            }
+            // Separate layers preserve this order despite quad/image batching.
+            if style.border.width > 0.0 {
+                renderer.with_layer(*viewport, |renderer| {
+                    renderer.fill_quad(quad, Color::TRANSPARENT);
+                });
+            }
+            return;
+        }
+        renderer.fill_quad(
+            quad,
+            style
+                .background
+                .unwrap_or(Background::Color(Color::TRANSPARENT)),
+        );
+    }
+}
+
+fn workspace_indicator(
+    show_numbers: bool,
+    has_icons: bool,
+    pinned: bool,
+    is_last: bool,
+) -> WorkspaceIndicator {
+    if show_numbers {
+        WorkspaceIndicator::Label
+    } else if has_icons {
+        WorkspaceIndicator::None
+    } else if !pinned && is_last {
+        WorkspaceIndicator::Plus
+    } else {
+        WorkspaceIndicator::Empty
+    }
+}
+
+fn app_group_leading_padding(show_numbers: bool) -> f32 {
+    if show_numbers {
+        APP_GROUP_LEADING_PADDING
+    } else {
+        0.0
+    }
+}
+
+fn workspace_major_size(
+    base_size: f32,
+    number_size: f32,
+    app_group_size: f32,
+    show_numbers: bool,
+    edge_padding: f32,
+) -> f32 {
+    if app_group_size == 0.0 {
+        return base_size;
+    }
+    edge_padding * 2.0
+        + app_group_size
+        + if show_numbers {
+            number_size + WORKSPACE_CONTENT_SPACING * 2.0 + WORKSPACE_DIVIDER_WIDTH
+        } else {
+            0.0
+        }
+}
+
+fn workspace_edge_padding(show_numbers: bool, cross_size: f32, largest_icon_slot: f32) -> f32 {
+    if show_numbers {
+        WORKSPACE_CONTENT_PADDING
+    } else {
+        // The same inset on either side of a single icon makes its pill square.
+        ((cross_size - largest_icon_slot) / 2.0).max(0.0)
+    }
+}
+
+fn workspace_pill_radii(
+    theme_radii: [f32; 4],
+    width: f32,
+    height: f32,
+    layout: Layout,
+    cross_inset: f32,
+) -> [f32; 4] {
+    let (width, height) = match layout {
+        Layout::Row => (width, height - cross_inset * 2.0),
+        Layout::Column => (width - cross_inset * 2.0, height),
+    };
+    let max_radius = width.min(height).max(0.0) / 2.0;
+    theme_radii.map(|radius| radius.min(max_radius))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PillStyleSelection {
@@ -191,16 +520,14 @@ impl<Message> Widget<Message, Theme, cosmic::Renderer> for HoverSwitch<'_, Messa
         renderer: &cosmic::Renderer,
         limits: &iced_layout::Limits,
     ) -> iced_layout::Node {
-        let normal = self.normal.as_widget_mut().layout(
-            &mut tree.children[0],
-            renderer,
-            limits,
-        );
-        let hovered = self.hovered.as_widget_mut().layout(
-            &mut tree.children[1],
-            renderer,
-            limits,
-        );
+        let normal = self
+            .normal
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits);
+        let hovered = self
+            .hovered
+            .as_widget_mut()
+            .layout(&mut tree.children[1], renderer, limits);
 
         iced_layout::Node::with_children(normal.size(), vec![normal, hovered])
     }
@@ -221,11 +548,7 @@ impl<Message> Widget<Message, Theme, cosmic::Renderer> for HoverSwitch<'_, Messa
             .children()
             .nth(child_index)
             .expect("hover switch should have normal and hovered layouts");
-        let child = if hovered {
-            &self.hovered
-        } else {
-            &self.normal
-        };
+        let child = if hovered { &self.hovered } else { &self.normal };
 
         child.as_widget().draw(
             &tree.children[child_index],
@@ -390,10 +713,7 @@ fn should_retain_toplevel_placement(
         && !sticky
 }
 
-fn retain_transient_toplevel_placements(
-    previous: &[ToplevelInfo],
-    current: &mut [ToplevelInfo],
-) {
+fn retain_transient_toplevel_placements(previous: &[ToplevelInfo], current: &mut [ToplevelInfo]) {
     for toplevel in current {
         // COSMIC temporarily removes a moved window from its workspace and
         // output until the grab ends. Keep its last placement across that gap.
@@ -519,6 +839,38 @@ fn symbolic_svg_icon(bytes: &'static [u8]) -> cosmic::widget::icon::Handle {
     handle
 }
 
+fn workspace_overflow_text(
+    applet: &cosmic::applet::Context,
+    icon_size: f32,
+    count: usize,
+) -> cosmic::widget::Text<'static, Theme> {
+    applet
+        .text(format!("+{count}"))
+        .size((icon_size * 0.55).max(10.0))
+        .wrapping(cosmic::iced::core::text::Wrapping::None)
+}
+
+fn workspace_overflow_size(applet: &cosmic::applet::Context, icon_size: f32, count: usize) -> Size {
+    if count == 0 {
+        return Size::ZERO;
+    }
+    // This app uses Iced's CPU renderer. Reuse one per thread to lay out the
+    // actual text widget, preserving COSMIC's font and absolute line height.
+    // The widget sets its own font and size, so renderer defaults are unused.
+    thread_local! {
+        static MEASURER: cosmic::Renderer = cosmic::Renderer::new(
+            cosmic::font::default(), cosmic::iced::Pixels(16.0),
+        );
+    }
+    let mut text: Element<'_, Message> = workspace_overflow_text(applet, icon_size, count).into();
+    let mut tree = Tree::new(&text);
+    MEASURER.with(|renderer| {
+        text.as_widget_mut()
+            .layout(&mut tree, renderer, &iced_layout::Limits::NONE)
+            .size()
+    })
+}
+
 impl IcedWorkspacesApplet {
     fn inactive_pill_brightness_stepper(&self) -> Element<'_, Message> {
         let value = self.config.inactive_pill_brightness_percent;
@@ -557,15 +909,13 @@ impl IcedWorkspacesApplet {
         let decrement: Element<'_, Message> =
             cosmic::widget::button::icon(symbolic_svg_icon(DECREASE_ICON_SVG))
                 .on_press_maybe(
-                    (value > MIN_PILL_BORDER_WIDTH)
-                        .then(|| Message::PillBorderWidth(value - 1)),
+                    (value > MIN_PILL_BORDER_WIDTH).then(|| Message::PillBorderWidth(value - 1)),
                 )
                 .into();
         let increment: Element<'_, Message> =
             cosmic::widget::button::icon(symbolic_svg_icon(INCREASE_ICON_SVG))
                 .on_press_maybe(
-                    (value < MAX_PILL_BORDER_WIDTH)
-                        .then(|| Message::PillBorderWidth(value + 1)),
+                    (value < MAX_PILL_BORDER_WIDTH).then(|| Message::PillBorderWidth(value + 1)),
                 )
                 .into();
         let value = container(self.core.applet.text(format!("{value} px")).size(14))
@@ -586,8 +936,7 @@ impl IcedWorkspacesApplet {
         let increment: Element<'_, Message> =
             cosmic::widget::button::icon(symbolic_svg_icon(INCREASE_ICON_SVG))
                 .on_press_maybe(
-                    (value < MAX_PILL_SPACING_PERCENT)
-                        .then(|| Message::PillSpacing(value + 1)),
+                    (value < MAX_PILL_SPACING_PERCENT).then(|| Message::PillSpacing(value + 1)),
                 )
                 .into();
         let value = container(self.core.applet.text(format!("{value}%")).size(14))
@@ -604,15 +953,13 @@ impl IcedWorkspacesApplet {
         let decrement: Element<'_, Message> =
             cosmic::widget::button::icon(symbolic_svg_icon(DECREASE_ICON_SVG))
                 .on_press_maybe(
-                    (value > MIN_VISIBLE_ICONS)
-                        .then(|| Message::MaxVisibleIcons(value - 1)),
+                    (value > MIN_VISIBLE_ICONS).then(|| Message::MaxVisibleIcons(value - 1)),
                 )
                 .into();
         let increment: Element<'_, Message> =
             cosmic::widget::button::icon(symbolic_svg_icon(INCREASE_ICON_SVG))
                 .on_press_maybe(
-                    (value < MAX_VISIBLE_ICONS)
-                        .then(|| Message::MaxVisibleIcons(value + 1)),
+                    (value < MAX_VISIBLE_ICONS).then(|| Message::MaxVisibleIcons(value + 1)),
                 )
                 .into();
         let value = container(self.core.applet.text(value.to_string()).size(14))
@@ -667,8 +1014,8 @@ impl IcedWorkspacesApplet {
         let text_color = if urgent {
             destructive
         } else if active && outlined_mode && !hovered {
-            // An outlined active pill has no accent fill at rest. Keep overflow
-            // text and symbolic icons readable against the panel background.
+            // An outlined active pill has no accent fill at rest. Keep application
+            // icons readable against the panel background.
             theme.current_container().component.on.into()
         } else {
             component.on.into()
@@ -699,7 +1046,7 @@ impl IcedWorkspacesApplet {
         }
     }
 
-    fn workspace_number_style(
+    fn workspace_indicator_style(
         theme: &Theme,
         active: bool,
         pill_style: WorkspacePillStyle,
@@ -709,8 +1056,23 @@ impl IcedWorkspacesApplet {
             return container::Style::default();
         }
 
+        let foreground = Self::outlined_active_foreground(theme, hovered);
         container::Style {
-            text_color: Some(Self::outlined_active_foreground(theme, hovered)),
+            text_color: Some(foreground),
+            icon_color: Some(foreground),
+            ..Default::default()
+        }
+    }
+
+    fn workspace_symbol_style(pill: container::Style) -> container::Style {
+        let color = if pill.background.is_none() {
+            Some(pill.border.color)
+        } else {
+            pill.icon_color
+        };
+        container::Style {
+            text_color: color,
+            icon_color: color,
             ..Default::default()
         }
     }
@@ -790,15 +1152,17 @@ impl IcedWorkspacesApplet {
             as f32
     }
 
-    fn app_icon_size(&self) -> f32 {
+    fn workspace_cross_axis_size(&self) -> f32 {
         let window_size = self.core.applet.suggested_window_size();
-        let cross_axis_size = if self.core.applet.is_horizontal() {
+        if self.core.applet.is_horizontal() {
             window_size.1.get() as f32
         } else {
             window_size.0.get() as f32
-        };
+        }
+    }
 
-        (cross_axis_size * 0.52).max(16.0)
+    fn app_icon_size(&self) -> f32 {
+        (self.workspace_cross_axis_size() * 0.52).max(16.0)
     }
 
     fn number_section_major_size(&self, has_apps: bool) -> f32 {
@@ -823,21 +1187,16 @@ impl IcedWorkspacesApplet {
             return 0.0;
         }
 
-        let icon_size = self.app_icon_size();
         let (visible_count, overflow_count) =
             visible_icon_counts(icons.len(), self.config.max_visible_icons);
-        let visible_size = icons
-            .iter()
-            .take(visible_count)
-            .map(|icon| {
-                Self::app_icon_slot_size(
-                    icon_size,
-                    self.config.highlight_maximized_window_icons && icon.maximized,
-                )
-            })
-            .sum::<f32>();
+        let visible_size = self.visible_icon_slot_sizes(icons).into_iter().sum::<f32>();
         let overflow_size = if overflow_count > 0 {
-            self.app_icon_size() * 1.15 + APP_ICON_SPACING
+            let size =
+                workspace_overflow_size(&self.core.applet, self.app_icon_size(), overflow_count);
+            match self.layout {
+                Layout::Row => size.width + APP_ICON_SPACING,
+                Layout::Column => size.height + APP_ICON_SPACING,
+            }
         } else {
             0.0
         };
@@ -845,22 +1204,55 @@ impl IcedWorkspacesApplet {
         visible_size
             + visible_count.saturating_sub(1) as f32 * APP_ICON_SPACING
             + overflow_size
-            + APP_GROUP_LEADING_PADDING
+            + app_group_leading_padding(self.config.show_workspace_numbers)
             + APP_GROUP_TRAILING_PADDING
     }
 
+    fn visible_icon_slot_sizes(&self, icons: &[WorkspaceIcon<'_>]) -> Vec<f32> {
+        let (visible, _) = visible_icon_counts(icons.len(), self.config.max_visible_icons);
+        let icon_size = self.app_icon_size();
+        let uniform = !self.config.show_workspace_numbers
+            && self.config.highlight_maximized_window_icons
+            && icons.iter().take(visible).any(|icon| icon.maximized);
+        icons
+            .iter()
+            .take(visible)
+            .map(|icon| {
+                Self::app_icon_slot_size(
+                    icon_size,
+                    uniform || (self.config.highlight_maximized_window_icons && icon.maximized),
+                )
+            })
+            .collect()
+    }
+
     fn workspace_button_major_size(&self, icons: &[WorkspaceIcon<'_>]) -> f32 {
-        let base_size = self.suggested_button_size();
-        if !icons.is_empty() {
-            WORKSPACE_LEADING_PADDING
-                + WORKSPACE_TRAILING_PADDING
-                + self.number_section_major_size(true)
-                + WORKSPACE_CONTENT_SPACING * 2.0
-                + WORKSPACE_DIVIDER_WIDTH
-                + self.app_group_major_size(icons)
-        } else {
-            base_size
+        workspace_major_size(
+            if self.config.show_workspace_numbers {
+                self.suggested_button_size()
+            } else {
+                self.workspace_cross_axis_size()
+            },
+            self.number_section_major_size(true),
+            self.app_group_major_size(icons),
+            self.config.show_workspace_numbers,
+            self.workspace_content_edge_padding(icons),
+        )
+    }
+
+    fn workspace_content_edge_padding(&self, icons: &[WorkspaceIcon<'_>]) -> f32 {
+        if icons.is_empty() {
+            return 0.0;
         }
+        let largest_slot = self
+            .visible_icon_slot_sizes(icons)
+            .into_iter()
+            .fold(0.0_f32, f32::max);
+        workspace_edge_padding(
+            self.config.show_workspace_numbers,
+            self.workspace_cross_axis_size(),
+            largest_slot,
+        )
     }
 
     fn update_desktop_entries(&mut self) {
@@ -971,6 +1363,7 @@ impl IcedWorkspacesApplet {
         icon_size: f32,
         minimized: bool,
         maximized: bool,
+        slot_size: f32,
     ) -> Element<'_, Message> {
         let opacity = if minimized {
             MINIMIZED_ICON_OPACITY
@@ -979,7 +1372,6 @@ impl IcedWorkspacesApplet {
         };
         let handle = metadata.icon_source.as_cosmic_icon();
         let symbolic = handle.symbolic;
-        let slot_size = Self::app_icon_slot_size(icon_size, maximized);
 
         let icon: Element<'_, Message> = match handle.data {
             cosmic::widget::icon::Data::Image(handle) => Image::new(handle)
@@ -995,13 +1387,16 @@ impl IcedWorkspacesApplet {
                 .into(),
         };
 
-        if maximized {
+        if slot_size > icon_size {
             container(icon)
                 .width(Length::Fixed(slot_size))
                 .height(Length::Fixed(slot_size))
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center)
                 .class(ContainerClass::Custom(Box::new(move |_| {
+                    if !maximized {
+                        return container::Style::default();
+                    }
                     let glow = Color {
                         a: MAXIMIZED_ICON_GLOW_OPACITY,
                         ..Color::WHITE
@@ -1041,6 +1436,7 @@ impl IcedWorkspacesApplet {
         let inactive_pill_style = self.config.inactive_pill_style;
         let outlined_border_width = f32::from(self.config.pill_border_width);
         let inactive_brightness_percent = self.config.inactive_pill_brightness_percent;
+        let show_numbers = self.config.show_workspace_numbers;
         let pill_cross_axis_inset = if horizontal {
             height * f32::from(self.config.pill_spacing_percent) / 100.0
         } else {
@@ -1053,22 +1449,29 @@ impl IcedWorkspacesApplet {
         let mut icon_elements = icons
             .iter()
             .take(visible_icon_count)
-            .map(|icon| {
+            .zip(self.visible_icon_slot_sizes(icons))
+            .map(|(icon, slot_size)| {
                 self.app_icon(
                     icon.metadata,
                     icon_size,
                     self.config.dim_minimized_window_icons && icon.minimized,
                     self.config.highlight_maximized_window_icons && icon.maximized,
+                    slot_size,
                 )
             })
             .collect::<Vec<_>>();
         if overflow_count > 0 {
+            let size = workspace_overflow_size(&self.core.applet, icon_size, overflow_count);
             icon_elements.push(
-                self.core
-                    .applet
-                    .text(format!("+{overflow_count}"))
-                    .size((icon_size * 0.55).max(10.0))
-                    .into(),
+                container(
+                    workspace_overflow_text(&self.core.applet, icon_size, overflow_count)
+                        .width(size.width)
+                        .height(size.height),
+                )
+                .class(ContainerClass::Custom(Box::new(move |theme| {
+                    Self::workspace_indicator_style(theme, active, pill_style, hovered)
+                })))
+                .into(),
             );
         }
         let app_strip: Element<'_, Message> = if horizontal {
@@ -1083,99 +1486,124 @@ impl IcedWorkspacesApplet {
                 .into()
         };
 
-        let number_section_size = self.number_section_major_size(!icons.is_empty());
-        let number_text = self
-            .core
-            .applet
-            .text(&workspace.name)
-            .font(cosmic::font::bold());
-        let number_text = if let Some(font_size) = workspace_number_font_size(icon_size) {
-            number_text.size(font_size)
-        } else {
-            number_text
-        }
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center();
-        let number = container(number_text).class(ContainerClass::Custom(Box::new(
-            move |theme| Self::workspace_number_style(theme, active, pill_style, hovered),
-        )));
-        let number: Element<'_, Message> = if horizontal {
-            number
-                .width(Length::Fixed(number_section_size))
-                .height(Length::Fill)
-        } else {
-            number
+        let app_group: Element<'_, Message> = container(app_strip)
+            .class(ContainerClass::Custom(Box::new(|_| {
+                container::Style::default()
+            })))
+            .padding(oriented_padding(
+                self.layout,
+                app_group_leading_padding(self.config.show_workspace_numbers),
+                APP_GROUP_TRAILING_PADDING,
+                if show_numbers {
+                    APP_GROUP_CROSS_AXIS_PADDING
+                } else {
+                    0.0
+                },
+            ))
+            .into();
+        let pinned = workspace
+            .cosmic_state
+            .contains(zcosmic_workspace_handle_v2::State::Pinned);
+        // Use the complete monitor-local list, not the slice that fits on the panel.
+        let is_last = self
+            .workspaces
+            .last()
+            .is_some_and(|last| last.handle == workspace.handle);
+        let indicator = workspace_indicator(
+            self.config.show_workspace_numbers,
+            !icons.is_empty(),
+            pinned,
+            is_last,
+        );
+        let cutout = matches!(
+            indicator,
+            WorkspaceIndicator::Plus | WorkspaceIndicator::Empty
+        ) && workspace_symbol_is_cutout(active, inactive_pill_style, hovered);
+        let content: Element<'_, Message> = match indicator {
+            WorkspaceIndicator::None => app_group,
+            WorkspaceIndicator::Plus | WorkspaceIndicator::Empty if cutout => {
+                space::horizontal().into()
+            }
+            WorkspaceIndicator::Plus | WorkspaceIndicator::Empty => Element::new(WorkspaceSymbol {
+                handle: svg::Handle::from_memory(indicator.symbol_svg()),
+                size: f32::from(icon_size as u16),
+            }),
+            WorkspaceIndicator::Label => {
+                let number_section_size = self.number_section_major_size(!icons.is_empty());
+                let number_text = self
+                    .core
+                    .applet
+                    .text(&workspace.name)
+                    .font(cosmic::font::bold());
+                let number_text = if let Some(font_size) = workspace_number_font_size(icon_size) {
+                    number_text.size(font_size)
+                } else {
+                    number_text
+                }
                 .width(Length::Fill)
-                .height(Length::Fixed(number_section_size))
-        }
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center)
-        .into();
-
-        let content: Element<'_, Message> = if icons.is_empty() {
-            number
-        } else {
-            let app_group: Element<'_, Message> = container(app_strip)
-                .class(ContainerClass::Custom(Box::new(|_| {
-                    container::Style::default()
-                })))
-                .padding(oriented_padding(
-                    self.layout,
-                    APP_GROUP_LEADING_PADDING,
-                    APP_GROUP_TRAILING_PADDING,
-                    APP_GROUP_CROSS_AXIS_PADDING,
-                ))
+                .height(Length::Fill)
+                .center();
+                let number =
+                    container(number_text).class(ContainerClass::Custom(Box::new(move |theme| {
+                        Self::workspace_indicator_style(theme, active, pill_style, hovered)
+                    })));
+                let number: Element<'_, Message> = if horizontal {
+                    number
+                        .width(Length::Fixed(number_section_size))
+                        .height(Length::Fill)
+                } else {
+                    number
+                        .width(Length::Fill)
+                        .height(Length::Fixed(number_section_size))
+                }
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
                 .into();
 
-            if horizontal {
-                let divider: Element<'_, Message> =
-                    container(space::vertical().height(Length::Fixed(icon_size * 0.8)))
-                        .width(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
-                        .class(ContainerClass::Custom(Box::new(move |theme| {
-                            Self::workspace_divider_style(
-                                theme,
-                                active,
-                                urgent,
-                                pill_style,
-                                hovered,
-                            )
-                        })))
-                        .into();
+                if icons.is_empty() {
+                    number
+                } else if horizontal {
+                    let divider: Element<'_, Message> =
+                        container(space::vertical().height(Length::Fixed(icon_size * 0.8)))
+                            .width(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
+                            .class(ContainerClass::Custom(Box::new(move |theme| {
+                                Self::workspace_divider_style(
+                                    theme, active, urgent, pill_style, hovered,
+                                )
+                            })))
+                            .into();
 
-                row![number, divider, app_group]
-                    .spacing(WORKSPACE_CONTENT_SPACING)
-                    .align_y(Alignment::Center)
-                    .into()
-            } else {
-                let divider: Element<'_, Message> =
-                    container(space::horizontal().width(Length::Fixed(icon_size * 0.8)))
-                        .height(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
-                        .class(ContainerClass::Custom(Box::new(move |theme| {
-                            Self::workspace_divider_style(
-                                theme,
-                                active,
-                                urgent,
-                                pill_style,
-                                hovered,
-                            )
-                        })))
-                        .into();
+                    row![number, divider, app_group]
+                        .spacing(WORKSPACE_CONTENT_SPACING)
+                        .align_y(Alignment::Center)
+                        .into()
+                } else {
+                    let divider: Element<'_, Message> =
+                        container(space::horizontal().width(Length::Fixed(icon_size * 0.8)))
+                            .height(Length::Fixed(WORKSPACE_DIVIDER_WIDTH))
+                            .class(ContainerClass::Custom(Box::new(move |theme| {
+                                Self::workspace_divider_style(
+                                    theme, active, urgent, pill_style, hovered,
+                                )
+                            })))
+                            .into();
 
-                column![number, divider, app_group]
-                    .spacing(WORKSPACE_CONTENT_SPACING)
-                    .align_x(Alignment::Center)
-                    .into()
+                    column![number, divider, app_group]
+                        .spacing(WORKSPACE_CONTENT_SPACING)
+                        .align_x(Alignment::Center)
+                        .into()
+                }
             }
         };
 
-        let has_apps = !icons.is_empty();
-        let pill_background: Element<'_, Message> = container(
-            container(space::horizontal())
-                .width(Length::Fill)
-                .height(Length::Fill)
+        // Unfilled symbols match the outline; active filled symbols keep their foreground.
+        let content = if matches!(
+            indicator,
+            WorkspaceIndicator::Plus | WorkspaceIndicator::Empty
+        ) {
+            container(content)
                 .class(ContainerClass::Custom(Box::new(move |theme| {
-                    Self::workspace_pill_style(
+                    Self::workspace_symbol_style(Self::workspace_pill_style(
                         theme,
                         active,
                         urgent,
@@ -1184,18 +1612,52 @@ impl IcedWorkspacesApplet {
                         inactive_pill_style,
                         outlined_border_width,
                         inactive_brightness_percent,
-                    )
-                }))),
-        )
-        .width(Length::Fixed(width))
-        .height(Length::Fixed(height))
-        .padding(oriented_padding(
-            self.layout,
-            0.0,
-            0.0,
-            pill_cross_axis_inset,
-        ))
-        .into();
+                    ))
+                })))
+                .into()
+        } else {
+            content
+        };
+
+        let has_apps = !icons.is_empty();
+        let content_edge_padding = self.workspace_content_edge_padding(icons);
+        let layout = self.layout;
+        let pill_background: Element<'_, Message> =
+            container(Element::new(WorkspacePillBackground {
+                cutout: cutout.then_some((indicator, f32::from(icon_size as u16))),
+                style: Box::new(move |theme| {
+                    let mut style = Self::workspace_pill_style(
+                        theme,
+                        active,
+                        urgent,
+                        hovered,
+                        pill_style,
+                        inactive_pill_style,
+                        outlined_border_width,
+                        inactive_brightness_percent,
+                    );
+                    if !show_numbers {
+                        style.border.radius = workspace_pill_radii(
+                            theme.cosmic().radius_xl(),
+                            width,
+                            height,
+                            layout,
+                            pill_cross_axis_inset,
+                        )
+                        .into();
+                    }
+                    style
+                }),
+            }))
+            .width(Length::Fixed(width))
+            .height(Length::Fixed(height))
+            .padding(oriented_padding(
+                self.layout,
+                0.0,
+                0.0,
+                pill_cross_axis_inset,
+            ))
+            .into();
 
         let pill_content: Element<'_, Message> = container(content)
             .class(ContainerClass::Custom(Box::new(move |theme| {
@@ -1218,12 +1680,7 @@ impl IcedWorkspacesApplet {
             .width(Length::Fixed(width))
             .height(Length::Fixed(height))
             .padding(if has_apps {
-                oriented_padding(
-                    self.layout,
-                    WORKSPACE_LEADING_PADDING,
-                    WORKSPACE_TRAILING_PADDING,
-                    0.0,
-                )
+                oriented_padding(self.layout, content_edge_padding, content_edge_padding, 0.0)
             } else {
                 Padding::ZERO
             })
@@ -1244,22 +1701,157 @@ mod tests {
         MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT, MAX_VISIBLE_ICONS,
         MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT, MIN_VISIBLE_ICONS, WorkspacePillStyle,
     };
-    use cosmic::cosmic_theme::palette::{IntoColor, Oklab, Srgb};
+    use cosmic::cosmic_theme::{
+        CornerRadii, Roundness,
+        palette::{IntoColor, Oklab, Srgb},
+    };
 
     use super::{
-        APP_GROUP_LEADING_PADDING, APP_GROUP_TRAILING_PADDING, APP_ICON_SPACING, Background, Color,
-        IcedWorkspacesApplet, Layout, MAX_PILL_BORDER_WIDTH,
-        MIN_PILL_BORDER_WIDTH, Theme, URGENT_FILLED_BORDER_WIDTH, WORKSPACE_CONTENT_SPACING,
-        WORKSPACE_LEADING_PADDING, WORKSPACE_LIST_EDGE_PADDING, WORKSPACE_TRAILING_PADDING,
-        AppMetadata, WorkspaceApp, WorkspaceWindowState, display_icons, informative_titles,
-        inactive_pill_brightness_percent, inactive_pill_color,
+        APP_GROUP_LEADING_PADDING, APP_GROUP_TRAILING_PADDING, APP_ICON_SPACING, AppMetadata,
+        Background, Color, IcedWorkspacesApplet, Layout, MAX_PILL_BORDER_WIDTH,
+        MIN_PILL_BORDER_WIDTH, Theme, URGENT_FILLED_BORDER_WIDTH, WORKSPACE_CONTENT_PADDING,
+        WORKSPACE_CONTENT_SPACING, WORKSPACE_LIST_EDGE_PADDING, WorkspaceApp, WorkspaceIndicator,
+        WorkspaceWindowState, app_group_leading_padding, display_icons,
+        inactive_pill_brightness_percent, inactive_pill_color, informative_titles,
         occupied_number_section_major_size, oriented_padding, pill_border_width,
         pill_spacing_percent, should_retain_toplevel_placement, visible_icon_counts,
-        visible_icon_limit, workspace_list_padding, workspace_number_font_size,
-        workspace_overview_command, workspace_tooltip,
+        visible_icon_limit, workspace_cutout_svg, workspace_edge_padding, workspace_indicator,
+        workspace_list_padding, workspace_major_size, workspace_number_font_size,
+        workspace_overflow_size, workspace_overview_command, workspace_pill_radii,
+        workspace_symbol_is_cutout, workspace_tooltip,
     };
 
     const TEST_OUTLINED_BORDER_WIDTH: f32 = 2.0;
+
+    #[test]
+    fn selects_workspace_labels_and_empty_placeholders() {
+        // (has icons, pinned, last, expected when numbers are hidden)
+        let cases = [
+            (false, false, false, WorkspaceIndicator::Empty),
+            (false, false, true, WorkspaceIndicator::Plus),
+            (false, true, false, WorkspaceIndicator::Empty),
+            (false, true, true, WorkspaceIndicator::Empty),
+            (true, false, false, WorkspaceIndicator::None),
+            (true, false, true, WorkspaceIndicator::None),
+            (true, true, false, WorkspaceIndicator::None),
+            (true, true, true, WorkspaceIndicator::None),
+        ];
+        for (has_icons, pinned, is_last, expected) in cases {
+            assert_eq!(
+                workspace_indicator(true, has_icons, pinned, is_last),
+                WorkspaceIndicator::Label
+            );
+            assert_eq!(
+                workspace_indicator(false, has_icons, pinned, is_last),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn round_single_icon_pills_are_circular_at_every_panel_size() {
+        let theme_radii = CornerRadii::from(Roundness::Round).radius_xl;
+        for cross_size in [24.0_f32, 32.0, 40.0, 56.0, 80.0] {
+            let icon_size = (cross_size * 0.52).max(16.0);
+            for maximized in [false, true] {
+                let slot = IcedWorkspacesApplet::app_icon_slot_size(icon_size, maximized);
+                let padding = workspace_edge_padding(false, cross_size, slot);
+                let major = workspace_major_size(cross_size, 28.0, slot, false, padding);
+                assert!((major - cross_size).abs() < 0.001);
+                assert!((padding * 2.0 + slot - cross_size).abs() < 0.001);
+                for layout in [Layout::Row, Layout::Column] {
+                    let (width, height) = match layout {
+                        Layout::Row => (major, cross_size),
+                        Layout::Column => (cross_size, major),
+                    };
+                    for radius in workspace_pill_radii(theme_radii, width, height, layout, 0.0) {
+                        assert!((radius - cross_size / 2.0).abs() < 0.001);
+                    }
+                }
+            }
+        }
+        assert_eq!(app_group_leading_padding(false), APP_GROUP_TRAILING_PADDING);
+    }
+
+    #[test]
+    fn additional_icons_and_overflow_extend_the_pill_without_changing_end_padding() {
+        let cross_size = 40.0;
+        let slot = 20.8;
+        let padding = workspace_edge_padding(false, cross_size, slot);
+        for additional_content in [
+            slot + APP_ICON_SPACING,
+            4.0 * (slot + APP_ICON_SPACING),
+            workspace_overflow_size(&cosmic::applet::Context::default(), slot, 1).width
+                + APP_ICON_SPACING,
+        ] {
+            let major =
+                workspace_major_size(cross_size, 28.0, slot + additional_content, false, padding);
+            assert!((major - cross_size - additional_content).abs() < 0.001);
+        }
+        // Icon-only mixed groups use the same enlarged slot for each frame.
+        let highlighted = IcedWorkspacesApplet::app_icon_slot_size(slot, true);
+        let padding = workspace_edge_padding(false, cross_size, highlighted);
+        let major = workspace_major_size(
+            cross_size,
+            28.0,
+            highlighted * 2.0 + APP_ICON_SPACING,
+            false,
+            padding,
+        );
+        assert!((major - (cross_size + APP_ICON_SPACING + highlighted)).abs() < 0.001);
+    }
+
+    #[test]
+    fn numbered_layout_keeps_its_existing_spacing_and_empty_workspaces_keep_their_size() {
+        let padding = workspace_edge_padding(true, 40.0, 20.8);
+        assert_eq!(padding, 8.0);
+        assert!((workspace_major_size(40.0, 28.0, 24.8, true, padding) - 77.8).abs() < 0.001);
+        for show_numbers in [false, true] {
+            assert_eq!(
+                workspace_major_size(40.0, 28.0, 0.0, show_numbers, 0.0),
+                40.0
+            );
+        }
+    }
+
+    #[test]
+    fn capsule_radius_tracks_visible_bounds_in_both_orientations() {
+        let theme_radii = CornerRadii::from(Roundness::Round).radius_xl;
+        for (width, height, layout, inset, expected) in [
+            (64.0, 40.0, Layout::Row, 0.0, 20.0),
+            (40.0, 64.0, Layout::Column, 0.0, 20.0),
+            (40.0, 40.0, Layout::Row, 4.0, 16.0),
+            (40.0, 40.0, Layout::Column, 4.0, 16.0),
+        ] {
+            assert_eq!(
+                workspace_pill_radii(theme_radii, width, height, layout, inset),
+                [expected; 4],
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_numbers_preserve_slightly_round_and_square_theme_corners() {
+        for (roundness, expected) in [(Roundness::SlightlyRound, 8.0), (Roundness::Square, 2.0)] {
+            let theme_radii = CornerRadii::from(roundness).radius_xl;
+            for cross_size in [24.0, 32.0, 40.0, 56.0, 80.0] {
+                for major_size in [cross_size, cross_size * 3.0] {
+                    for inset in [0.0, 4.0] {
+                        for layout in [Layout::Row, Layout::Column] {
+                            let (width, height) = match layout {
+                                Layout::Row => (major_size, cross_size),
+                                Layout::Column => (cross_size, major_size),
+                            };
+                            assert_eq!(
+                                workspace_pill_radii(theme_radii, width, height, layout, inset),
+                                [expected; 4],
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn test_app<'a>(
         app_id: &'a str,
@@ -1444,11 +2036,11 @@ mod tests {
 
     #[test]
     fn uses_a_balanced_four_eight_pixel_workspace_rhythm() {
-        assert_eq!(WORKSPACE_LEADING_PADDING, 8.0);
+        assert_eq!(WORKSPACE_CONTENT_PADDING, 8.0);
         assert_eq!(WORKSPACE_CONTENT_SPACING, 4.0);
         assert_eq!(WORKSPACE_CONTENT_SPACING + APP_GROUP_LEADING_PADDING, 8.0);
         assert_eq!(APP_ICON_SPACING, 4.0);
-        assert_eq!(APP_GROUP_TRAILING_PADDING + WORKSPACE_TRAILING_PADDING, 8.0);
+        assert_eq!(APP_GROUP_TRAILING_PADDING + WORKSPACE_CONTENT_PADDING, 8.0);
     }
 
     #[test]
@@ -1769,37 +2361,446 @@ mod tests {
 
         let expected = Color::from(theme.cosmic().accent_button.hover);
         assert_eq!(style.background, Some(Background::Color(expected)));
-        assert_eq!(style.border.color, theme.cosmic().accent_button.hover.into());
-        assert_eq!(style.text_color, Some(theme.cosmic().accent_button.on.into()));
-        assert_eq!(style.icon_color, Some(theme.cosmic().accent_button.on.into()));
+        assert_eq!(
+            style.border.color,
+            theme.cosmic().accent_button.hover.into()
+        );
+        assert_eq!(
+            style.text_color,
+            Some(theme.cosmic().accent_button.on.into())
+        );
+        assert_eq!(
+            style.icon_color,
+            Some(theme.cosmic().accent_button.on.into())
+        );
         assert_eq!(style.border.width, 0.0);
     }
 
     #[test]
-    fn gives_the_active_number_an_accent_text_color_in_outlined_mode() {
+    fn gives_the_active_indicator_an_accent_text_color_in_outlined_mode() {
         let theme = Theme::default();
-        let style = IcedWorkspacesApplet::workspace_number_style(&theme, true, WorkspacePillStyle::Outlined, false);
+        let style = IcedWorkspacesApplet::workspace_indicator_style(
+            &theme,
+            true,
+            WorkspacePillStyle::Outlined,
+            false,
+        );
         let expected = theme
             .cosmic()
             .accent_text
             .unwrap_or(theme.cosmic().accent_button.base);
 
         assert_eq!(style.text_color, Some(expected.into()));
+        assert_eq!(style.icon_color, Some(expected.into()));
     }
 
     #[test]
-    fn gives_the_active_number_on_accent_text_when_hovered() {
+    fn gives_the_active_indicator_on_accent_text_when_hovered() {
         let theme = Theme::default();
-        let style = IcedWorkspacesApplet::workspace_number_style(&theme, true, WorkspacePillStyle::Outlined, true);
+        let style = IcedWorkspacesApplet::workspace_indicator_style(
+            &theme,
+            true,
+            WorkspacePillStyle::Outlined,
+            true,
+        );
 
-        assert_eq!(style.text_color, Some(theme.cosmic().accent_button.on.into()));
+        assert_eq!(
+            style.text_color,
+            Some(theme.cosmic().accent_button.on.into())
+        );
+        assert_eq!(
+            style.icon_color,
+            Some(theme.cosmic().accent_button.on.into())
+        );
+    }
+
+    #[test]
+    fn empty_workspace_symbols_match_the_outline_including_brightness_and_urgency() {
+        for theme in [Theme::dark(), Theme::light()] {
+            for active in [false, true] {
+                for urgent in [false, true] {
+                    for brightness in [-75, 0, 75] {
+                        let pill = IcedWorkspacesApplet::workspace_pill_style(
+                            &theme,
+                            active,
+                            urgent,
+                            false,
+                            WorkspacePillStyle::Outlined,
+                            WorkspacePillStyle::Outlined,
+                            0.0,
+                            brightness,
+                        );
+                        let symbol = IcedWorkspacesApplet::workspace_symbol_style(pill);
+                        assert_eq!(symbol.icon_color, Some(pill.border.color));
+                        assert_eq!(symbol.text_color, Some(pill.border.color));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn renders_symbols_and_cutout_fills_with_the_same_opacity_as_native_pills() {
+        use super::{
+            ContainerClass, Element, IcedLayout, Length, Rectangle, Size, Tree,
+            WorkspacePillBackground, WorkspaceSymbol, container, iced_layout, mouse, renderer, svg,
+        };
+        use cosmic::iced::{Font, Pixels, Point};
+        use renderer::{Headless as _, Renderer as _};
+
+        let mut renderer =
+            futures::executor::block_on(<cosmic::Renderer as renderer::Headless>::new(
+                Font::DEFAULT,
+                Pixels(16.0),
+                Some("tiny-skia"),
+            ))
+            .expect("software renderer");
+        let viewport = Rectangle::with_size(Size::new(88.0, 40.0));
+        let panel = Color::from_rgb8(61, 79, 111);
+
+        for theme in [Theme::dark(), Theme::light()] {
+            for brightness in [-75, 0, 75] {
+                for indicator in [WorkspaceIndicator::Empty, WorkspaceIndicator::Plus] {
+                    for cutout in [false, true] {
+                        renderer.reset(viewport);
+                        let style = if cutout {
+                            WorkspacePillStyle::Filled
+                        } else {
+                            WorkspacePillStyle::Outlined
+                        };
+                        let pill = IcedWorkspacesApplet::workspace_pill_style(
+                            &theme, false, false, false, style, style, 3.0, brightness,
+                        );
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle::with_size(Size::new(40.0, 40.0)),
+                                border: pill.border,
+                                ..Default::default()
+                            },
+                            pill.background
+                                .unwrap_or(Background::Color(Color::TRANSPARENT)),
+                        );
+                        let mut visual: Element<'_, ()> = if cutout {
+                            Element::new(WorkspacePillBackground {
+                                style: Box::new(move |_| pill),
+                                cutout: Some((indicator, 24.0)),
+                            })
+                        } else {
+                            container(Element::new(WorkspaceSymbol {
+                                handle: svg::Handle::from_memory(indicator.symbol_svg()),
+                                size: 24.0,
+                            }))
+                            .center_x(Length::Fixed(40.0))
+                            .center_y(Length::Fixed(40.0))
+                            .class(ContainerClass::Custom(Box::new(move |_| {
+                                IcedWorkspacesApplet::workspace_symbol_style(pill)
+                            })))
+                            .into()
+                        };
+                        let mut tree = Tree::new(&visual);
+                        let layout = visual
+                            .as_widget_mut()
+                            .layout(
+                                &mut tree,
+                                &renderer,
+                                &iced_layout::Limits::new(Size::ZERO, Size::new(40.0, 40.0)),
+                            )
+                            .move_to(Point::new(48.0, 0.0));
+                        visual.as_widget().draw(
+                            &tree,
+                            &mut renderer,
+                            &theme,
+                            &renderer::Style::default(),
+                            IcedLayout::new(&layout),
+                            mouse::Cursor::Unavailable,
+                            &viewport,
+                        );
+                        let pixels = renderer.screenshot(Size::new(88, 40), 1.0, panel);
+                        let pixel =
+                            |x: usize, y: usize| &pixels[(y * 88 + x) * 4..(y * 88 + x) * 4 + 4];
+                        let (reference, actual) = if cutout {
+                            (pixel(20, 20), pixel(53, 20))
+                        } else {
+                            (pixel(20, 1), pixel(68, 20))
+                        };
+                        for (expected, rendered) in reference.iter().zip(actual) {
+                            assert!(
+                                expected.abs_diff(*rendered) <= 1,
+                                "pill={reference:?}, svg={actual:?}, cutout={cutout}"
+                            );
+                        }
+                        if cutout {
+                            assert_eq!(pixel(68, 20), panel.into_rgba8());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn compare_cutout_with_native_pill(
+        theme: &Theme,
+        pill: cosmic::widget::container::Style,
+        bounds: cosmic::iced::Rectangle,
+        scale: f32,
+        indicator: WorkspaceIndicator,
+    ) -> (Vec<u8>, Vec<u8>, usize) {
+        use super::{Element, IcedLayout, Size, Tree, WorkspacePillBackground, mouse, renderer};
+        use cosmic::iced::{Font, Pixels};
+        use renderer::{Headless as _, Renderer as _};
+
+        let mut renderer =
+            futures::executor::block_on(<cosmic::Renderer as renderer::Headless>::new(
+                Font::DEFAULT,
+                Pixels(16.0),
+                Some("tiny-skia"),
+            ))
+            .expect("software renderer");
+        let viewport = cosmic::iced::Rectangle::with_size(Size::new(64.0, 64.0));
+        let size = Size::new((64.0 * scale) as u32, (64.0 * scale) as u32);
+        let panel = Color::from_rgb8(61, 79, 111);
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: pill.border,
+                snap: pill.snap,
+                ..Default::default()
+            },
+            pill.background
+                .unwrap_or(Background::Color(Color::TRANSPARENT)),
+        );
+        let native = renderer.screenshot(size, scale, panel);
+        renderer.reset(viewport);
+        let visual: Element<'_, ()> = Element::new(WorkspacePillBackground {
+            style: Box::new(move |_| pill),
+            cutout: Some((indicator, 24.0)),
+        });
+        let tree = Tree::new(&visual);
+        let layout = super::iced_layout::Node::new(bounds.size()).move_to(bounds.position());
+        visual.as_widget().draw(
+            &tree,
+            &mut renderer,
+            theme,
+            &renderer::Style {
+                scale_factor: f64::from(scale),
+                ..Default::default()
+            },
+            IcedLayout::new(&layout),
+            mouse::Cursor::Unavailable,
+            &viewport,
+        );
+        let actual = renderer.screenshot(size, scale, panel);
+        (native, actual, size.width as usize)
+    }
+
+    #[test]
+    fn cutout_pills_preserve_urgent_border_colors() {
+        for theme in [Theme::dark(), Theme::light()] {
+            for (mode, hovered) in [
+                (WorkspacePillStyle::Filled, false),
+                (WorkspacePillStyle::Filled, true),
+                (WorkspacePillStyle::Outlined, true),
+            ] {
+                let pill = test_pill_style(&theme, false, true, hovered, mode, mode);
+                let bounds = cosmic::iced::Rectangle {
+                    x: 8.0,
+                    y: 8.0,
+                    width: 40.0,
+                    height: 40.0,
+                };
+                for indicator in [WorkspaceIndicator::Empty, WorkspaceIndicator::Plus] {
+                    for scale in [1.0, 1.25, 1.5, 2.0] {
+                        let (native, actual, width) =
+                            compare_cutout_with_native_pill(&theme, pill, bounds, scale, indicator);
+                        let start = (8.0 * scale) as usize;
+                        let end = (48.0 * scale) as usize - 1;
+                        let center = (28.0 * scale) as usize;
+                        // Compare the middle of each straight border segment.
+                        for (x, y) in [
+                            (center, start),
+                            (center, end),
+                            (start, center),
+                            (end, center),
+                        ] {
+                            let offset = (y * width + x) * 4;
+                            assert_eq!(
+                                &native[offset..offset + 4],
+                                &actual[offset..offset + 4],
+                                "urgent border changed for {mode:?} at ({x}, {y}), scale={scale}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cutout_pill_edges_follow_fractional_bounds_and_display_scale() {
+        for theme in [Theme::dark(), Theme::light()] {
+            for inset in [0.4_f32, 1.6, 4.0] {
+                for horizontal in [false, true] {
+                    let bounds = cosmic::iced::Rectangle {
+                        x: 8.0 + if horizontal { 0.0 } else { inset },
+                        y: 8.0 + if horizontal { inset } else { 0.0 },
+                        width: 40.0 - if horizontal { 0.0 } else { inset * 2.0 },
+                        height: 40.0 - if horizontal { inset * 2.0 } else { 0.0 },
+                    };
+                    let mut pill = IcedWorkspacesApplet::workspace_pill_style(
+                        &theme,
+                        false,
+                        false,
+                        false,
+                        WorkspacePillStyle::Filled,
+                        WorkspacePillStyle::Filled,
+                        2.0,
+                        75,
+                    );
+                    pill.border.radius = (bounds.width.min(bounds.height) / 2.0).into();
+                    for scale in [1.0, 1.2, 1.25, 1.5, 1.75, 2.0] {
+                        let (native, actual, width) = compare_cutout_with_native_pill(
+                            &theme,
+                            pill,
+                            bounds,
+                            scale,
+                            WorkspaceIndicator::Empty,
+                        );
+                        for (index, (expected, rendered)) in native
+                            .chunks_exact(4)
+                            .zip(actual.chunks_exact(4))
+                            .enumerate()
+                        {
+                            let x = (index % width) as f32 / scale;
+                            let y = (index / width) as f32 / scale;
+                            let center = bounds.center();
+                            if (x - center.x).abs() < 13.0 && (y - center.y).abs() < 13.0 {
+                                continue;
+                            }
+                            for (a, b) in expected.iter().zip(rendered) {
+                                // Allow small differences in curve anti-aliasing, not lost rows.
+                                assert!(
+                                    a.abs_diff(*b) <= 8,
+                                    "clipped or shifted edge at ({x}, {y}): native={expected:?}, \
+                                     cutout={rendered:?}, inset={inset}, scale={scale}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_inactive_filled_pills_cut_out_their_symbols() {
+        for (active, style, hovered, expected) in [
+            (false, WorkspacePillStyle::Filled, false, true),
+            (false, WorkspacePillStyle::Filled, true, true),
+            (false, WorkspacePillStyle::Outlined, false, false),
+            (false, WorkspacePillStyle::Outlined, true, true),
+            (true, WorkspacePillStyle::Filled, false, false),
+            (true, WorkspacePillStyle::Filled, true, false),
+            (true, WorkspacePillStyle::Outlined, false, false),
+            (true, WorkspacePillStyle::Outlined, true, false),
+        ] {
+            assert_eq!(workspace_symbol_is_cutout(active, style, hovered), expected);
+        }
+    }
+
+    #[test]
+    fn focused_filled_symbols_keep_their_existing_color() {
+        for theme in [Theme::dark(), Theme::light()] {
+            for active_style in [WorkspacePillStyle::Filled, WorkspacePillStyle::Outlined] {
+                for hovered in [false, true] {
+                    let pill = test_pill_style(
+                        &theme,
+                        true,
+                        false,
+                        hovered,
+                        active_style,
+                        WorkspacePillStyle::Outlined,
+                    );
+                    if pill.background.is_none() {
+                        continue;
+                    }
+                    let symbol = IcedWorkspacesApplet::workspace_symbol_style(pill);
+                    let previous = IcedWorkspacesApplet::workspace_indicator_style(
+                        &theme,
+                        true,
+                        active_style,
+                        hovered,
+                    );
+                    assert_eq!(symbol.icon_color, previous.icon_color.or(pill.icon_color));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cutout_svg_has_a_transparent_symbol_and_preserves_pill_corners() {
+        use resvg::{tiny_skia, usvg};
+
+        for indicator in [WorkspaceIndicator::Empty, WorkspaceIndicator::Plus] {
+            // Horizontal/vertical pills and every corner style.
+            for (width, height) in [(48, 40), (40, 48), (40, 40)] {
+                for radius in [0.0, 4.0, 20.0] {
+                    let svg = workspace_cutout_svg(
+                        indicator,
+                        24.0,
+                        super::Size::new(width as f32, height as f32),
+                        super::Rectangle::with_size(super::Size::new(width as f32, height as f32)),
+                        [radius; 4],
+                    );
+                    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default())
+                        .expect("valid cutout SVG");
+                    let mut pixmap = tiny_skia::Pixmap::new(width, height).unwrap();
+                    resvg::render(
+                        &tree,
+                        tiny_skia::Transform::identity(),
+                        &mut pixmap.as_mut(),
+                    );
+                    assert_eq!(pixmap.pixel(width / 2, height / 2).unwrap().alpha(), 0);
+                    assert_eq!(pixmap.pixel(2, height / 2).unwrap().alpha(), 255);
+                    let corner_alpha = pixmap.pixel(0, 0).unwrap().alpha();
+                    assert_eq!(corner_alpha, if radius == 0.0 { 255 } else { 0 });
+
+                    let solid =
+                        usvg::Tree::from_data(indicator.symbol_svg(), &usvg::Options::default())
+                            .expect("valid symbol SVG");
+                    let mut symbol = tiny_skia::Pixmap::new(width, height).unwrap();
+                    let viewbox_size = match indicator {
+                        WorkspaceIndicator::Plus => 16.0,
+                        _ => 24.0,
+                    };
+                    let scale = 24.0 / viewbox_size;
+                    let transform = tiny_skia::Transform::from_scale(scale, scale)
+                        .post_translate((width as f32 - 24.0) / 2.0, (height as f32 - 24.0) / 2.0);
+                    resvg::render(&solid, transform, &mut symbol.as_mut());
+                    for y in height / 2 - 10..height / 2 + 10 {
+                        for x in width / 2 - 10..width / 2 + 10 {
+                            let sum = u16::from(pixmap.pixel(x, y).unwrap().alpha())
+                                + u16::from(symbol.pixel(x, y).unwrap().alpha());
+                            assert!(
+                                (254..=256).contains(&sum),
+                                "cutout must match the solid glyph"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
     fn gives_the_active_divider_an_accent_color_in_outlined_mode() {
         let theme = Theme::default();
-        let style =
-            IcedWorkspacesApplet::workspace_divider_style(&theme, true, false, WorkspacePillStyle::Outlined, false);
+        let style = IcedWorkspacesApplet::workspace_divider_style(
+            &theme,
+            true,
+            false,
+            WorkspacePillStyle::Outlined,
+            false,
+        );
         let expected = theme
             .cosmic()
             .accent_text
@@ -1811,8 +2812,13 @@ mod tests {
     #[test]
     fn gives_the_active_divider_an_on_accent_color_when_hovered() {
         let theme = Theme::default();
-        let style =
-            IcedWorkspacesApplet::workspace_divider_style(&theme, true, false, WorkspacePillStyle::Outlined, true);
+        let style = IcedWorkspacesApplet::workspace_divider_style(
+            &theme,
+            true,
+            false,
+            WorkspacePillStyle::Outlined,
+            true,
+        );
 
         assert_eq!(
             style.background,
@@ -1922,13 +2928,14 @@ enum Message {
     DimMinimizedWindowIcons(bool),
     HighlightMaximizedWindowIcons(bool),
     ShowOneIconPerApplication(bool),
+    ShowWorkspaceNumbers(bool),
     MaxVisibleIcons(u8),
     PillStyle(usize),
     PillBorderWidth(u8),
     PillSpacing(u8),
     InactivePillBrightness(i8),
     ConfigUpdated(WorkspacesAppletConfig),
-    Surface(surface::Action),
+    Surface(surface::Action<Message>),
 }
 
 impl cosmic::Application for IcedWorkspacesApplet {
@@ -1999,10 +3006,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     snapshot
                         .workspaces
                         .sort_by(|w1, w2| w1.coordinates.cmp(&w2.coordinates));
-                    retain_transient_toplevel_placements(
-                        &self.toplevels,
-                        &mut snapshot.toplevels,
-                    );
+                    retain_transient_toplevel_placements(&self.toplevels, &mut snapshot.toplevels);
                     self.workspaces = snapshot.workspaces;
                     self.toplevels = snapshot.toplevels;
                     self.output = snapshot.output;
@@ -2080,6 +3084,10 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config.show_one_icon_per_application = enabled;
                 self.write_config();
             }
+            Message::ShowWorkspaceNumbers(enabled) => {
+                self.config.show_workspace_numbers = enabled;
+                self.write_config();
+            }
             Message::MaxVisibleIcons(limit) => {
                 self.config.max_visible_icons = visible_icon_limit(limit);
                 self.write_config();
@@ -2112,9 +3120,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config = config;
             }
             Message::Surface(a) => {
-                return cosmic::task::message(cosmic::Action::Cosmic(
-                    cosmic::app::Action::Surface(a),
-                ));
+                return surface::surface_task(a);
             }
         }
         Task::none()
@@ -2159,7 +3165,18 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .applet_tooltip(btn, tooltip, false, Message::Surface, None)
                     .into()
             } else {
-                btn.into()
+                let tooltip = if w
+                    .cosmic_state
+                    .contains(zcosmic_workspace_handle_v2::State::Pinned)
+                {
+                    crate::fl!("pinned-empty-workspace", name = w.name.as_str())
+                } else {
+                    crate::fl!("empty-workspace", name = w.name.as_str())
+                };
+                self.core
+                    .applet
+                    .applet_tooltip(btn, tooltip, false, Message::Surface, None)
+                    .into()
             };
 
             mouse_area(workspace_button)
@@ -2233,23 +3250,23 @@ impl cosmic::Application for IcedWorkspacesApplet {
         ])
         .class(ContainerClass::Custom(Box::new(Self::subtle_version_style)));
 
-        let outline_thickness: Element<'_, Message> =
-            if self.config.pill_style == WorkspacePillStyle::Outlined
-                || self.config.inactive_pill_style == WorkspacePillStyle::Outlined
-            {
-                row![
-                    self.core
-                        .applet
-                        .text(crate::fl!("pill-outline-thickness"))
-                        .size(14),
-                    space::horizontal(),
-                    self.pill_border_width_stepper()
-                ]
-                .align_y(Alignment::Center)
-                .into()
-            } else {
-                space::vertical().height(Length::Fixed(0.0)).into()
-            };
+        let outline_thickness: Element<'_, Message> = if self.config.pill_style
+            == WorkspacePillStyle::Outlined
+            || self.config.inactive_pill_style == WorkspacePillStyle::Outlined
+        {
+            row![
+                self.core
+                    .applet
+                    .text(crate::fl!("pill-outline-thickness"))
+                    .size(14),
+                space::horizontal(),
+                self.pill_border_width_stepper()
+            ]
+            .align_y(Alignment::Center)
+            .into()
+        } else {
+            space::vertical().height(Length::Fixed(0.0)).into()
+        };
 
         let content = column![
             padded_control(
@@ -2274,6 +3291,13 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .width(Length::Fill)
             ),
             padded_control(
+                toggler(self.config.show_workspace_numbers)
+                    .on_toggle(Message::ShowWorkspaceNumbers)
+                    .label(crate::fl!("show-workspace-numbers"))
+                    .text_size(14)
+                    .width(Length::Fill)
+            ),
+            padded_control(
                 row![
                     self.core
                         .applet
@@ -2292,7 +3316,9 @@ impl cosmic::Application for IcedWorkspacesApplet {
                         self.core.applet.text(crate::fl!("pill-style")).size(14),
                         space::horizontal(),
                         popup_dropdown(
-                            PillStyleSelection::ALL.map(PillStyleSelection::label).to_vec(),
+                            PillStyleSelection::ALL
+                                .map(PillStyleSelection::label)
+                                .to_vec(),
                             selected_pill_style,
                             Message::PillStyle,
                             id,
@@ -2304,10 +3330,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .align_y(Alignment::Center),
                     outline_thickness,
                     row![
-                        self.core
-                            .applet
-                            .text(crate::fl!("pill-spacing"))
-                            .size(14),
+                        self.core.applet.text(crate::fl!("pill-spacing")).size(14),
                         space::horizontal(),
                         self.pill_spacing_stepper()
                     ]
