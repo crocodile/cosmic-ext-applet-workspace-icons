@@ -2935,7 +2935,7 @@ enum Message {
     PillSpacing(u8),
     InactivePillBrightness(i8),
     ConfigUpdated(WorkspacesAppletConfig),
-    Surface(surface::Action),
+    Surface(surface::Action<Message>),
 }
 
 impl cosmic::Application for IcedWorkspacesApplet {
@@ -3120,9 +3120,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config = config;
             }
             Message::Surface(a) => {
-                return cosmic::task::message(cosmic::Action::Cosmic(
-                    cosmic::app::Action::Surface(a),
-                ));
+                return surface::surface_task(a);
             }
         }
         Task::none()
