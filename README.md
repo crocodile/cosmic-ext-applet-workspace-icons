@@ -137,6 +137,11 @@ flatpak uninstall --user io.github.crocodile.cosmic-ext-applet-workspace-icons
 
 ## Development
 
+The repository includes a patched Iced software renderer to preserve fractional
+image positions. Normal builds use it automatically. See the
+[renderer notes](third_party/iced_tiny_skia/README.md) for its source revision,
+local changes, and removal instructions once the upstream fix is available.
+
 ```bash
 just build
 just install
