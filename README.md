@@ -38,8 +38,10 @@ numbers either shown or hidden. With **Round** style, numbers hidden, and
 including when maximized highlighting is enabled. Additional icons extend the
 pill while retaining balanced end padding.
 
-Empty workspaces show a small solid dot when pinned, or when unpinned and not
-last. The last unpinned workspace shows a `+`. The last workspace is determined
+When workspace numbers are hidden, empty workspaces show a small solid dot when
+pinned, or when unpinned and not last, only with **Active filled** or **All outlined**
+pill style and **Outline thickness** set to 0px. The last unpinned workspace
+shows a `+`. The last workspace is determined
 per monitor, before panel-space clipping (bottommost on vertical panels). An
 empty active workspace can remain before later workspaces until you switch away.
 Hover over an empty workspace to see its name and pinned/empty status.
