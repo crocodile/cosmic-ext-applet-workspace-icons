@@ -11,15 +11,12 @@ pub const MIN_PILL_BORDER_WIDTH: u8 = 0;
 pub const DEFAULT_PILL_BORDER_WIDTH: u8 = 2;
 pub const MAX_PILL_BORDER_WIDTH: u8 = 3;
 pub const MAX_PILL_SPACING_PERCENT: u8 = 10;
+pub const MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT: i8 = -75;
+pub const MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT: i8 = 75;
+pub const INACTIVE_PILL_BRIGHTNESS_STEP: i8 = 5;
 pub const MIN_VISIBLE_ICONS: u8 = 1;
 pub const DEFAULT_VISIBLE_ICONS: u8 = 5;
 pub const MAX_VISIBLE_ICONS: u8 = 16;
-pub const DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT: u8 = 25;
-pub const MAX_INACTIVE_PILL_CONTRAST_PERCENT: u8 = 100;
-pub const INACTIVE_PILL_CONTRAST_STEP_PERCENT: u8 = 5;
-
-const LEGACY_INACTIVE_PILL_OPACITY_KEY: &str = "inactive_pill_opacity_percent";
-const INACTIVE_PILL_CONTRAST_KEY: &str = "inactive_pill_contrast_percent";
 const INACTIVE_PILL_STYLE_KEY: &str = "inactive_pill_style";
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,7 +27,7 @@ pub enum WorkspacePillStyle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, CosmicConfigEntry)]
-#[version = 3]
+#[version = 4]
 #[serde(default)]
 pub struct WorkspacesAppletConfig {
     pub dim_minimized_window_icons: bool,
@@ -41,7 +38,7 @@ pub struct WorkspacesAppletConfig {
     pub inactive_pill_style: WorkspacePillStyle,
     pub pill_border_width: u8,
     pub pill_spacing_percent: u8,
-    pub inactive_pill_contrast_percent: u8,
+    pub inactive_pill_brightness_percent: i8,
 }
 
 impl Default for WorkspacesAppletConfig {
@@ -55,7 +52,7 @@ impl Default for WorkspacesAppletConfig {
             inactive_pill_style: WorkspacePillStyle::Filled,
             pill_border_width: DEFAULT_PILL_BORDER_WIDTH,
             pill_spacing_percent: 0,
-            inactive_pill_contrast_percent: DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
+            inactive_pill_brightness_percent: 0,
         }
     }
 }
@@ -67,10 +64,6 @@ impl WorkspacesAppletConfig {
             Err((errors, entry)) => (entry, errors),
         };
 
-        let needs_migration = matches!(
-            config.get::<u8>(INACTIVE_PILL_CONTRAST_KEY),
-            Err(Error::NotFound | Error::NoConfigDirectory)
-        );
         let needs_pill_style_migration = matches!(
             config.get::<WorkspacePillStyle>(INACTIVE_PILL_STYLE_KEY),
             Err(Error::NotFound | Error::NoConfigDirectory)
@@ -78,29 +71,9 @@ impl WorkspacesAppletConfig {
 
         if needs_pill_style_migration {
             entry.inactive_pill_style = entry.pill_style;
-        }
-
-        if needs_migration {
-            match config.get_local::<u8>(LEGACY_INACTIVE_PILL_OPACITY_KEY) {
-                Ok(percent) => {
-                    entry.inactive_pill_contrast_percent =
-                        percent.min(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-                }
-                Err(error) if error.is_err() => errors.push(error),
-                Err(_) => {}
+            if let Err(error) = entry.write_entry(config) {
+                errors.push(error);
             }
-        }
-
-        let clamped_contrast = entry
-            .inactive_pill_contrast_percent
-            .min(MAX_INACTIVE_PILL_CONTRAST_PERCENT);
-        let needs_clamping = clamped_contrast != entry.inactive_pill_contrast_percent;
-        entry.inactive_pill_contrast_percent = clamped_contrast;
-
-        if (needs_migration || needs_pill_style_migration || needs_clamping)
-            && let Err(error) = entry.write_entry(config)
-        {
-            errors.push(error);
         }
 
         errors.retain(Error::is_err);
@@ -111,8 +84,7 @@ impl WorkspacesAppletConfig {
 #[cfg(test)]
 mod tests {
     use super::{
-        APP_ID, DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT, DEFAULT_PILL_BORDER_WIDTH,
-        DEFAULT_VISIBLE_ICONS, MAX_INACTIVE_PILL_CONTRAST_PERCENT, WorkspacePillStyle,
+        APP_ID, DEFAULT_PILL_BORDER_WIDTH, DEFAULT_VISIBLE_ICONS, WorkspacePillStyle,
         WorkspacesAppletConfig,
     };
     use cosmic_config::{Config, ConfigGet, ConfigSet, CosmicConfigEntry};
@@ -134,10 +106,10 @@ mod tests {
     }
 
     #[test]
-    fn uses_twenty_five_percent_inactive_pill_contrast_by_default() {
+    fn uses_zero_inactive_pill_brightness_by_default() {
         assert_eq!(
-            WorkspacesAppletConfig::default().inactive_pill_contrast_percent,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT
+            WorkspacesAppletConfig::default().inactive_pill_brightness_percent,
+            0
         );
     }
 
@@ -155,27 +127,6 @@ mod tests {
     }
 
     #[test]
-    fn supplies_the_default_contrast_when_deserializing_an_older_config() {
-        let config: WorkspacesAppletConfig = serde_json::from_str(
-            r#"{
-                "dim_minimized_window_icons": true,
-                "highlight_maximized_window_icons": true,
-                "pill_style": "Filled",
-                "pill_border_width": 2,
-                "pill_spacing_percent": 0
-            }"#,
-        )
-        .expect("an older config should deserialize using defaults for missing fields");
-
-        assert_eq!(
-            config.inactive_pill_contrast_percent,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-        assert!(config.show_one_icon_per_application);
-        assert_eq!(config.max_visible_icons, DEFAULT_VISIBLE_ICONS);
-    }
-
-    #[test]
     fn loads_an_older_cosmic_config_with_application_grouping_enabled() {
         let directory = tempfile::tempdir().expect("temporary config directory");
         let config = Config::with_custom_path(
@@ -184,12 +135,6 @@ mod tests {
             directory.path().to_path_buf(),
         )
         .expect("version three config");
-        config
-            .set(
-                "inactive_pill_contrast_percent",
-                DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT,
-            )
-            .expect("existing contrast setting");
 
         let (loaded, errors) = WorkspacesAppletConfig::load(&config);
 
@@ -248,106 +193,39 @@ mod tests {
     }
 
     #[test]
-    fn migrates_the_version_two_opacity_percentage_to_contrast() {
+    fn retains_version_three_settings_but_resets_old_contrast_to_zero_brightness() {
         let directory = tempfile::tempdir().expect("temporary config directory");
-        let old_config = Config::with_custom_path(APP_ID, 2, directory.path().to_path_buf())
-            .expect("version two config");
+        let old_config = Config::with_custom_path(APP_ID, 3, directory.path().to_path_buf())
+            .expect("version three config");
         old_config
-            .set("inactive_pill_opacity_percent", 90_u8)
-            .expect("legacy opacity setting");
+            .set("dim_minimized_window_icons", false)
+            .expect("old dimming preference");
+        old_config
+            .set("max_visible_icons", 8_u8)
+            .expect("old icon limit");
+        old_config
+            .set("pill_style", WorkspacePillStyle::Filled)
+            .expect("old active style");
+        old_config
+            .set("inactive_pill_style", WorkspacePillStyle::Outlined)
+            .expect("old inactive style");
+        old_config
+            .set("inactive_pill_contrast_percent", 90_u8)
+            .expect("old contrast preference");
 
         let new_config = Config::with_custom_path(
             APP_ID,
             WorkspacesAppletConfig::VERSION,
             directory.path().to_path_buf(),
         )
-        .expect("version three config");
+        .expect("version four config");
         let (loaded, errors) = WorkspacesAppletConfig::load(&new_config);
 
         assert!(errors.is_empty());
-        assert_eq!(loaded.inactive_pill_contrast_percent, 90);
-        assert_eq!(
-            new_config
-                .get_local::<u8>("inactive_pill_contrast_percent")
-                .expect("migrated contrast setting"),
-            90
-        );
-    }
-
-    #[test]
-    fn initializes_missing_contrast_with_the_default() {
-        let directory = tempfile::tempdir().expect("temporary config directory");
-        let config = Config::with_custom_path(
-            APP_ID,
-            WorkspacesAppletConfig::VERSION,
-            directory.path().to_path_buf(),
-        )
-        .expect("version three config");
-
-        let (loaded, errors) = WorkspacesAppletConfig::load(&config);
-
-        assert!(errors.is_empty());
-        assert_eq!(
-            loaded.inactive_pill_contrast_percent,
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-        assert_eq!(
-            config
-                .get_local::<u8>("inactive_pill_contrast_percent")
-                .expect("initialized contrast setting"),
-            DEFAULT_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-    }
-
-    #[test]
-    fn clamps_migrated_contrast_to_one_hundred_percent() {
-        let directory = tempfile::tempdir().expect("temporary config directory");
-        let old_config = Config::with_custom_path(APP_ID, 2, directory.path().to_path_buf())
-            .expect("version two config");
-        old_config
-            .set("inactive_pill_opacity_percent", u8::MAX)
-            .expect("legacy opacity setting");
-
-        let new_config = Config::with_custom_path(
-            APP_ID,
-            WorkspacesAppletConfig::VERSION,
-            directory.path().to_path_buf(),
-        )
-        .expect("version three config");
-        let (loaded, errors) = WorkspacesAppletConfig::load(&new_config);
-
-        assert!(errors.is_empty());
-        assert_eq!(
-            loaded.inactive_pill_contrast_percent,
-            MAX_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-    }
-
-    #[test]
-    fn clamps_and_persists_invalid_version_three_contrast() {
-        let directory = tempfile::tempdir().expect("temporary config directory");
-        let config = Config::with_custom_path(
-            APP_ID,
-            WorkspacesAppletConfig::VERSION,
-            directory.path().to_path_buf(),
-        )
-        .expect("version three config");
-        config
-            .set("inactive_pill_contrast_percent", u8::MAX)
-            .expect("invalid contrast setting");
-
-        let (loaded, errors) = WorkspacesAppletConfig::load(&config);
-
-        assert!(errors.is_empty());
-        assert_eq!(
-            loaded.inactive_pill_contrast_percent,
-            MAX_INACTIVE_PILL_CONTRAST_PERCENT
-        );
-        assert_eq!(
-            config
-                .get_local::<u8>("inactive_pill_contrast_percent")
-                .expect("clamped contrast setting"),
-            MAX_INACTIVE_PILL_CONTRAST_PERCENT
-        );
+        assert!(!loaded.dim_minimized_window_icons);
+        assert_eq!(loaded.max_visible_icons, 8);
+        assert_eq!(loaded.pill_style, WorkspacePillStyle::Filled);
+        assert_eq!(loaded.inactive_pill_style, WorkspacePillStyle::Outlined);
+        assert_eq!(loaded.inactive_pill_brightness_percent, 0);
     }
 }
