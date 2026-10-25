@@ -90,6 +90,15 @@
     <keyword xml:lang="cs">Ikony</keyword>
   </keywords>
   <releases>
+    <release type="stable" version="1.5.1" date="2026-10-25">
+      <description>
+        <ul>
+          <li>Balance workspace icon spacing and improve overflow count sizing.</li>
+          <li>Improve application icon alignment at fractional display scales.</li>
+          <li>Refine empty-workspace indicators and pill colours.</li>
+        </ul>
+      </description>
+    </release>
     <release type="stable" version="1.4.0" date="2026-10-15">
       <description>
         <ul>
