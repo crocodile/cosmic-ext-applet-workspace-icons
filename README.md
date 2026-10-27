@@ -18,14 +18,12 @@ number so you can see where windows are at a glance.
 
 ## Features
 
-- Displays application icons beside each workspace number.
-- Can hide workspace numbers and names with **Show workspace numbers**.
-- Can show separate icons for each open window by disabling application grouping.
-- Associates windows with the correct workspace and monitor.
-- Configures up to sixteen visible icons per workspace before showing an overflow count.
-- Dims minimised window icons.
-- Highlights maximised window icons.
-- Preserves workspace switching, scrolling, and workspace overview behavior.
+- See which apps are open on each workspace and monitor, with icons beside the workspace number or name.
+- Hide workspace numbers for a more compact panel; empty workspaces remain identifiable with a plus or dot when needed.
+- Choose **All filled**, **Active filled**, or **All outlined** workspace pills, and adjust their spacing, outline thickness, and inactive brightness.
+- Group windows from the same app into one icon or show an icon for each window. Set a limit of 1–16 visible icons per workspace, with `+N` for the rest.
+- Dim icons for minimised windows and highlight icons for maximised windows. Hover to see app names and window counts.
+- Click or scroll to switch workspaces, and click the active workspace to open the overview.
 
 ## Workspace Numbers
 
@@ -38,8 +36,10 @@ numbers either shown or hidden. With **Round** style, numbers hidden, and
 including when maximized highlighting is enabled. Additional icons extend the
 pill while retaining balanced end padding.
 
-Empty workspaces show a small solid dot when pinned, or when unpinned and not
-last. The last unpinned workspace shows a `+`. The last workspace is determined
+When workspace numbers are hidden, empty workspaces show a small solid dot when
+pinned, or when unpinned and not last, only with **Active filled** or **All outlined**
+pill style and **Outline thickness** set to 0px. The last unpinned workspace
+shows a `+`. The last workspace is determined
 per monitor, before panel-space clipping (bottommost on vertical panels). An
 empty active workspace can remain before later workspaces until you switch away.
 Hover over an empty workspace to see its name and pinned/empty status.

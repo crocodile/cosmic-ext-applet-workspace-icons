@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-ext-applet-workspace-icons"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "anyhow",
  "cosmic-client-toolkit",

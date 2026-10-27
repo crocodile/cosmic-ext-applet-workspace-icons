@@ -356,6 +356,7 @@ fn workspace_indicator(
     has_icons: bool,
     pinned: bool,
     is_last: bool,
+    show_empty_dot: bool,
 ) -> WorkspaceIndicator {
     if show_numbers {
         WorkspaceIndicator::Label
@@ -363,9 +364,15 @@ fn workspace_indicator(
         WorkspaceIndicator::None
     } else if !pinned && is_last {
         WorkspaceIndicator::Plus
-    } else {
+    } else if show_empty_dot {
         WorkspaceIndicator::Empty
+    } else {
+        WorkspaceIndicator::None
     }
+}
+
+fn show_empty_workspace_dot(inactive_pill_style: WorkspacePillStyle, border_width: u8) -> bool {
+    inactive_pill_style == WorkspacePillStyle::Outlined && border_width == 0
 }
 
 fn app_group_leading_padding(show_numbers: bool) -> f32 {
@@ -1514,6 +1521,7 @@ impl IcedWorkspacesApplet {
             !icons.is_empty(),
             pinned,
             is_last,
+            show_empty_workspace_dot(inactive_pill_style, self.config.pill_border_width),
         );
         let cutout = matches!(
             indicator,
@@ -1710,15 +1718,15 @@ mod tests {
         APP_GROUP_LEADING_PADDING, APP_GROUP_TRAILING_PADDING, APP_ICON_SPACING, AppMetadata,
         Background, Color, IcedWorkspacesApplet, Layout, MAX_PILL_BORDER_WIDTH,
         MIN_PILL_BORDER_WIDTH, Theme, URGENT_FILLED_BORDER_WIDTH, WORKSPACE_CONTENT_PADDING,
-        WORKSPACE_CONTENT_SPACING, WORKSPACE_LIST_EDGE_PADDING, WorkspaceApp, WorkspaceIndicator,
-        WorkspaceWindowState, app_group_leading_padding, display_icons,
+        WORKSPACE_CONTENT_SPACING, WORKSPACE_LIST_EDGE_PADDING, PillStyleSelection, WorkspaceApp,
+        WorkspaceIndicator, WorkspaceWindowState, app_group_leading_padding, display_icons,
         inactive_pill_brightness_percent, inactive_pill_color, informative_titles,
         occupied_number_section_major_size, oriented_padding, pill_border_width,
         pill_spacing_percent, should_retain_toplevel_placement, visible_icon_counts,
         visible_icon_limit, workspace_cutout_svg, workspace_edge_padding, workspace_indicator,
         workspace_list_padding, workspace_major_size, workspace_number_font_size,
         workspace_overflow_size, workspace_overview_command, workspace_pill_radii,
-        workspace_symbol_is_cutout, workspace_tooltip,
+        show_empty_workspace_dot, workspace_symbol_is_cutout, workspace_tooltip,
     };
 
     const TEST_OUTLINED_BORDER_WIDTH: f32 = 2.0;
@@ -1738,13 +1746,45 @@ mod tests {
         ];
         for (has_icons, pinned, is_last, expected) in cases {
             assert_eq!(
-                workspace_indicator(true, has_icons, pinned, is_last),
+                workspace_indicator(true, has_icons, pinned, is_last, true),
                 WorkspaceIndicator::Label
             );
             assert_eq!(
-                workspace_indicator(false, has_icons, pinned, is_last),
+                workspace_indicator(false, has_icons, pinned, is_last, true),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn shows_empty_dot_only_for_zero_width_active_filled_or_all_outlined_pills() {
+        for selection in PillStyleSelection::ALL {
+            let (_, inactive_style) = selection.styles();
+            for border_width in [0, 1, 2, 3] {
+                let show_dot = show_empty_workspace_dot(inactive_style, border_width);
+                assert_eq!(
+                    show_dot,
+                    selection != PillStyleSelection::AllFilled && border_width == 0
+                );
+                for pinned in [false, true] {
+                    assert_eq!(
+                        workspace_indicator(false, false, pinned, false, show_dot),
+                        if show_dot {
+                            WorkspaceIndicator::Empty
+                        } else {
+                            WorkspaceIndicator::None
+                        }
+                    );
+                }
+                assert_eq!(
+                    workspace_indicator(false, false, false, true, show_dot),
+                    WorkspaceIndicator::Plus
+                );
+                assert_eq!(
+                    workspace_indicator(true, false, true, false, show_dot),
+                    WorkspaceIndicator::Label
+                );
+            }
         }
     }
 
