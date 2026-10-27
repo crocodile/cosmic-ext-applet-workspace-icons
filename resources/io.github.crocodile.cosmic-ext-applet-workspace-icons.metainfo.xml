@@ -90,6 +90,13 @@
     <keyword xml:lang="cs">Ikony</keyword>
   </keywords>
   <releases>
+    <release type="stable" version="1.5.2" date="2026-10-27">
+      <description>
+        <ul>
+          <li>Show an empty workspace dot only when a zero-width outline would otherwise leave it invisible.</li>
+        </ul>
+      </description>
+    </release>
     <release type="stable" version="1.5.1" date="2026-10-25">
       <description>
         <ul>
