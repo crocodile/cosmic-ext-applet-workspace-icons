@@ -31,6 +31,7 @@ pub enum WorkspacePillStyle {
 #[serde(default)]
 pub struct WorkspacesAppletConfig {
     pub show_workspace_numbers: bool,
+    pub show_app_icons: bool,
     pub dim_minimized_window_icons: bool,
     pub highlight_maximized_window_icons: bool,
     pub show_one_icon_per_application: bool,
@@ -46,6 +47,7 @@ impl Default for WorkspacesAppletConfig {
     fn default() -> Self {
         Self {
             show_workspace_numbers: true,
+            show_app_icons: true,
             dim_minimized_window_icons: true,
             highlight_maximized_window_icons: true,
             show_one_icon_per_application: true,
