@@ -3098,7 +3098,9 @@ impl cosmic::Application for IcedWorkspacesApplet {
                             app.core.applet.get_popup_settings(
                                 app.core.main_window_id().unwrap(),
                                 popup,
-                                Some((1, 1)),
+                                // No fixed size: a repeated request for the open popup would
+                                // shrink it to that size under its corner radius (#52).
+                                None,
                                 None,
                                 None,
                             )
