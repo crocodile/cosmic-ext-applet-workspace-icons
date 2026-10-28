@@ -45,7 +45,7 @@ use crate::{
         self, INACTIVE_PILL_BRIGHTNESS_STEP, MAX_INACTIVE_PILL_BRIGHTNESS_PERCENT,
         MAX_PILL_BORDER_WIDTH, MAX_PILL_SPACING_PERCENT, MAX_VISIBLE_ICONS,
         MIN_INACTIVE_PILL_BRIGHTNESS_PERCENT, MIN_PILL_BORDER_WIDTH, MIN_VISIBLE_ICONS,
-        WorkspacePillStyle, WorkspacesAppletConfig,
+        WorkspaceNumberStyle, WorkspacePillStyle, WorkspacesAppletConfig,
     },
     wayland::WorkspaceEvent,
     wayland_subscription::{WorkspacesUpdate, workspaces},
@@ -451,6 +451,72 @@ impl PillStyleSelection {
             Self::AllOutlined => crate::fl!("pill-style-outlined"),
         }
     }
+}
+
+const NUMBER_STYLES: [(WorkspaceNumberStyle, &str); 3] = [
+    (WorkspaceNumberStyle::Arabic, "1, 2, 3"),
+    (WorkspaceNumberStyle::Roman, "I, II, III"),
+    (WorkspaceNumberStyle::ChineseJapanese, "一, 二, 三"),
+];
+
+/// Writes a numeric workspace name in the chosen style; other names are left as they are.
+fn workspace_label(name: &str, style: WorkspaceNumberStyle) -> Cow<'_, str> {
+    let converted = name.parse::<u32>().ok().and_then(|n| match style {
+        WorkspaceNumberStyle::Arabic => None,
+        WorkspaceNumberStyle::Roman => roman_numeral(n),
+        WorkspaceNumberStyle::ChineseJapanese => cjk_numeral(n),
+    });
+    converted.map_or(Cow::Borrowed(name), Cow::Owned)
+}
+
+fn roman_numeral(mut n: u32) -> Option<String> {
+    const VALUES: [(u32, &str); 13] = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+    if !(1..=3999).contains(&n) {
+        return None;
+    }
+    let mut out = String::new();
+    for (value, symbol) in VALUES {
+        while n >= value {
+            out.push_str(symbol);
+            n -= value;
+        }
+    }
+    Some(out)
+}
+
+// shortcut: covers 1-99 and larger numbers keep their digits; extend if 100+ workspaces matter.
+fn cjk_numeral(n: u32) -> Option<String> {
+    const DIGITS: [char; 10] = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    let (tens, ones) = (n / 10, n % 10);
+    let mut out = String::new();
+    match n {
+        1..=9 => out.push(DIGITS[ones as usize]),
+        10..=99 => {
+            if tens > 1 {
+                out.push(DIGITS[tens as usize]);
+            }
+            out.push('十');
+            if ones > 0 {
+                out.push(DIGITS[ones as usize]);
+            }
+        }
+        _ => return None,
+    }
+    Some(out)
 }
 
 pub fn run() -> cosmic::iced::Result {
@@ -861,6 +927,26 @@ fn workspace_overflow_size(applet: &cosmic::applet::Context, icon_size: f32, cou
     if count == 0 {
         return Size::ZERO;
     }
+    measure_text(
+        workspace_overflow_text(applet, icon_size, count),
+        &iced_layout::Limits::NONE,
+    )
+}
+
+fn workspace_number_text<'a>(
+    applet: &cosmic::applet::Context,
+    label: Cow<'a, str>,
+    icon_size: f32,
+) -> cosmic::widget::Text<'a, Theme> {
+    let text = applet.text(label).font(cosmic::font::bold());
+    if let Some(font_size) = workspace_number_font_size(icon_size) {
+        text.size(font_size)
+    } else {
+        text
+    }
+}
+
+fn measure_text(text: cosmic::widget::Text<'_, Theme>, limits: &iced_layout::Limits) -> Size {
     // This app uses Iced's CPU renderer. Reuse one per thread to lay out the
     // actual text widget, preserving COSMIC's font and absolute line height.
     // The widget sets its own font and size, so renderer defaults are unused.
@@ -869,11 +955,11 @@ fn workspace_overflow_size(applet: &cosmic::applet::Context, icon_size: f32, cou
             cosmic::font::default(), cosmic::iced::Pixels(16.0),
         );
     }
-    let mut text: Element<'_, Message> = workspace_overflow_text(applet, icon_size, count).into();
+    let mut text: Element<'_, Message> = text.into();
     let mut tree = Tree::new(&text);
     MEASURER.with(|renderer| {
         text.as_widget_mut()
-            .layout(&mut tree, renderer, &iced_layout::Limits::NONE)
+            .layout(&mut tree, renderer, limits)
             .size()
     })
 }
@@ -1145,7 +1231,7 @@ impl IcedWorkspacesApplet {
             }
             let apps = self.apps_for_workspace(workspace);
             let icons = display_icons(&apps, self.config.show_one_icon_per_application);
-            used += self.workspace_button_major_size(&icons);
+            used += self.workspace_button_major_size(&workspace.name, &icons);
             if used > max_major_axis_len as f32 {
                 return Some(index.max(1));
             }
@@ -1172,12 +1258,30 @@ impl IcedWorkspacesApplet {
         (self.workspace_cross_axis_size() * 0.52).max(16.0)
     }
 
-    fn number_section_major_size(&self, has_apps: bool) -> f32 {
+    fn number_section_major_size(&self, has_apps: bool, label: &str) -> f32 {
         let base_size = self.suggested_button_size();
-        if has_apps {
+        let size = if has_apps {
             occupied_number_section_major_size(base_size, self.app_icon_size())
         } else {
             base_size
+        };
+        // Long labels such as XXIII or 二十三 get a longer slot. A vertical panel
+        // cannot get wider, so there the label wraps and the slot grows taller.
+        let horizontal = self.core.applet.is_horizontal();
+        let limits = if horizontal {
+            iced_layout::Limits::NONE
+        } else {
+            iced_layout::Limits::NONE.max_width(self.workspace_cross_axis_size())
+        };
+        let text = measure_text(
+            workspace_number_text(&self.core.applet, label.into(), self.app_icon_size()),
+            &limits,
+        );
+        let label_size = if horizontal { text.width } else { text.height };
+        if label_size > size {
+            label_size + WORKSPACE_CONTENT_SPACING * 2.0
+        } else {
+            size
         }
     }
 
@@ -1233,14 +1337,15 @@ impl IcedWorkspacesApplet {
             .collect()
     }
 
-    fn workspace_button_major_size(&self, icons: &[WorkspaceIcon<'_>]) -> f32 {
+    fn workspace_button_major_size(&self, name: &str, icons: &[WorkspaceIcon<'_>]) -> f32 {
+        let label = workspace_label(name, self.config.workspace_number_style);
         workspace_major_size(
             if self.config.show_workspace_numbers {
-                self.suggested_button_size()
+                self.number_section_major_size(false, &label)
             } else {
                 self.workspace_cross_axis_size()
             },
-            self.number_section_major_size(true),
+            self.number_section_major_size(true, &label),
             self.app_group_major_size(icons),
             self.config.show_workspace_numbers,
             self.workspace_content_edge_padding(icons),
@@ -1537,20 +1642,12 @@ impl IcedWorkspacesApplet {
                 size: f32::from(icon_size as u16),
             }),
             WorkspaceIndicator::Label => {
-                let number_section_size = self.number_section_major_size(!icons.is_empty());
-                let number_text = self
-                    .core
-                    .applet
-                    .text(&workspace.name)
-                    .font(cosmic::font::bold());
-                let number_text = if let Some(font_size) = workspace_number_font_size(icon_size) {
-                    number_text.size(font_size)
-                } else {
-                    number_text
-                }
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center();
+                let label = workspace_label(&workspace.name, self.config.workspace_number_style);
+                let number_section_size = self.number_section_major_size(!icons.is_empty(), &label);
+                let number_text = workspace_number_text(&self.core.applet, label, icon_size)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center();
                 let number =
                     container(number_text).class(ContainerClass::Custom(Box::new(move |theme| {
                         Self::workspace_indicator_style(theme, active, pill_style, hovered)
@@ -2949,6 +3046,35 @@ mod tests {
     }
 
     #[test]
+    fn writes_numeric_workspace_names_in_the_chosen_style() {
+        use super::workspace_label;
+        use crate::config::WorkspaceNumberStyle::{Arabic, ChineseJapanese, Roman};
+
+        let cases = [
+            ("1", "I", "一"),
+            ("4", "IV", "四"),
+            ("9", "IX", "九"),
+            ("10", "X", "十"),
+            ("11", "XI", "十一"),
+            ("20", "XX", "二十"),
+            ("23", "XXIII", "二十三"),
+            ("99", "XCIX", "九十九"),
+        ];
+        for (name, roman, cjk) in cases {
+            assert_eq!(workspace_label(name, Arabic), name);
+            assert_eq!(workspace_label(name, Roman), roman);
+            assert_eq!(workspace_label(name, ChineseJapanese), cjk);
+        }
+
+        // names that are not plain positive numbers stay as they are
+        for name in ["Web", "0", "100", "-2", ""] {
+            assert_eq!(workspace_label(name, ChineseJapanese), name);
+        }
+        assert_eq!(workspace_label("Web", Roman), "Web");
+        assert_eq!(workspace_label("0", Roman), "0");
+    }
+
+    #[test]
     fn enlarges_workspace_numbers_only_at_xl_icon_sizes() {
         assert_eq!(workspace_number_font_size(33.28), None);
         assert_eq!(workspace_number_font_size(39.99), None);
@@ -2971,6 +3097,7 @@ enum Message {
     ShowWorkspaceNumbers(bool),
     MaxVisibleIcons(u8),
     PillStyle(usize),
+    WorkspaceNumberStyle(usize),
     PillBorderWidth(u8),
     PillSpacing(u8),
     InactivePillBrightness(i8),
@@ -3138,6 +3265,12 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     self.write_config();
                 }
             }
+            Message::WorkspaceNumberStyle(index) => {
+                if let Some((style, _)) = NUMBER_STYLES.get(index) {
+                    self.config.workspace_number_style = *style;
+                    self.write_config();
+                }
+            }
             Message::PillBorderWidth(width) => {
                 self.config.pill_border_width = pill_border_width(width);
                 self.write_config();
@@ -3178,7 +3311,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
             let active = w.state.contains(ext_workspace_handle_v1::State::Active);
             let apps = self.apps_for_workspace(w);
             let icons = display_icons(&apps, self.config.show_one_icon_per_application);
-            let major_size = self.workspace_button_major_size(&icons);
+            let major_size = self.workspace_button_major_size(&w.name, &icons);
             let (width, height) = if horizontal {
                 (major_size, suggested_window_size.1.get() as f32)
             } else {
@@ -3308,6 +3441,32 @@ impl cosmic::Application for IcedWorkspacesApplet {
             space::vertical().height(Length::Fixed(0.0)).into()
         };
 
+        let number_style: Element<'_, Message> = if self.config.show_workspace_numbers {
+            padded_control(
+                row![
+                    self.core
+                        .applet
+                        .text(crate::fl!("workspace-number-style"))
+                        .size(14),
+                    space::horizontal(),
+                    popup_dropdown(
+                        NUMBER_STYLES.map(|(_, label)| label.to_string()).to_vec(),
+                        NUMBER_STYLES
+                            .iter()
+                            .position(|(style, _)| *style == self.config.workspace_number_style),
+                        Message::WorkspaceNumberStyle,
+                        id,
+                        Message::Surface,
+                        |message| message,
+                    )
+                ]
+                .align_y(Alignment::Center),
+            )
+            .into()
+        } else {
+            space::vertical().height(Length::Fixed(0.0)).into()
+        };
+
         let content = column![
             padded_control(
                 toggler(self.config.dim_minimized_window_icons)
@@ -3337,6 +3496,7 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .text_size(14)
                     .width(Length::Fill)
             ),
+            number_style,
             padded_control(
                 row![
                     self.core
