@@ -4,6 +4,7 @@ highlight-maximized-window-icons = Highlight maximised window icons
 show-one-icon-per-application = Show one icon per application
 max-visible-icons = Limit the number of icons to
 pill-style = Pill style
+show-app-icons = Show app icons
 show-workspace-numbers = Show workspace numbers
 empty-workspace = Workspace { $name } — Empty
 pinned-empty-workspace = Workspace { $name } — Pinned, empty

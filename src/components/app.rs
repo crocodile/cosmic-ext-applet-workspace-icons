@@ -1144,7 +1144,7 @@ impl IcedWorkspacesApplet {
                 used += WORKSPACE_BUTTON_SPACING;
             }
             let apps = self.apps_for_workspace(workspace);
-            let icons = display_icons(&apps, self.config.show_one_icon_per_application);
+            let icons = self.workspace_icons(&apps);
             used += self.workspace_button_major_size(&icons);
             if used > max_major_axis_len as f32 {
                 return Some(index.max(1));
@@ -1170,6 +1170,19 @@ impl IcedWorkspacesApplet {
 
     fn app_icon_size(&self) -> f32 {
         (self.workspace_cross_axis_size() * 0.52).max(16.0)
+    }
+
+    fn workspace_icons<'a>(&self, apps: &'a [WorkspaceApp<'a>]) -> Vec<WorkspaceIcon<'a>> {
+        if self.config.show_app_icons {
+            display_icons(apps, self.config.show_one_icon_per_application)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// With app icons hidden, the number is all a pill has left to show.
+    fn show_numbers(&self) -> bool {
+        self.config.show_workspace_numbers || !self.config.show_app_icons
     }
 
     fn number_section_major_size(&self, has_apps: bool) -> f32 {
@@ -1211,14 +1224,14 @@ impl IcedWorkspacesApplet {
         visible_size
             + visible_count.saturating_sub(1) as f32 * APP_ICON_SPACING
             + overflow_size
-            + app_group_leading_padding(self.config.show_workspace_numbers)
+            + app_group_leading_padding(self.show_numbers())
             + APP_GROUP_TRAILING_PADDING
     }
 
     fn visible_icon_slot_sizes(&self, icons: &[WorkspaceIcon<'_>]) -> Vec<f32> {
         let (visible, _) = visible_icon_counts(icons.len(), self.config.max_visible_icons);
         let icon_size = self.app_icon_size();
-        let uniform = !self.config.show_workspace_numbers
+        let uniform = !self.show_numbers()
             && self.config.highlight_maximized_window_icons
             && icons.iter().take(visible).any(|icon| icon.maximized);
         icons
@@ -1235,14 +1248,14 @@ impl IcedWorkspacesApplet {
 
     fn workspace_button_major_size(&self, icons: &[WorkspaceIcon<'_>]) -> f32 {
         workspace_major_size(
-            if self.config.show_workspace_numbers {
+            if self.show_numbers() {
                 self.suggested_button_size()
             } else {
                 self.workspace_cross_axis_size()
             },
             self.number_section_major_size(true),
             self.app_group_major_size(icons),
-            self.config.show_workspace_numbers,
+            self.show_numbers(),
             self.workspace_content_edge_padding(icons),
         )
     }
@@ -1256,7 +1269,7 @@ impl IcedWorkspacesApplet {
             .into_iter()
             .fold(0.0_f32, f32::max);
         workspace_edge_padding(
-            self.config.show_workspace_numbers,
+            self.show_numbers(),
             self.workspace_cross_axis_size(),
             largest_slot,
         )
@@ -1443,7 +1456,7 @@ impl IcedWorkspacesApplet {
         let inactive_pill_style = self.config.inactive_pill_style;
         let outlined_border_width = f32::from(self.config.pill_border_width);
         let inactive_brightness_percent = self.config.inactive_pill_brightness_percent;
-        let show_numbers = self.config.show_workspace_numbers;
+        let show_numbers = self.show_numbers();
         let pill_cross_axis_inset = if horizontal {
             height * f32::from(self.config.pill_spacing_percent) / 100.0
         } else {
@@ -1499,7 +1512,7 @@ impl IcedWorkspacesApplet {
             })))
             .padding(oriented_padding(
                 self.layout,
-                app_group_leading_padding(self.config.show_workspace_numbers),
+                app_group_leading_padding(self.show_numbers()),
                 APP_GROUP_TRAILING_PADDING,
                 if show_numbers {
                     APP_GROUP_CROSS_AXIS_PADDING
@@ -1517,7 +1530,7 @@ impl IcedWorkspacesApplet {
             .last()
             .is_some_and(|last| last.handle == workspace.handle);
         let indicator = workspace_indicator(
-            self.config.show_workspace_numbers,
+            self.show_numbers(),
             !icons.is_empty(),
             pinned,
             is_last,
@@ -2969,6 +2982,7 @@ enum Message {
     HighlightMaximizedWindowIcons(bool),
     ShowOneIconPerApplication(bool),
     ShowWorkspaceNumbers(bool),
+    ShowAppIcons(bool),
     MaxVisibleIcons(u8),
     PillStyle(usize),
     PillBorderWidth(u8),
@@ -3128,6 +3142,10 @@ impl cosmic::Application for IcedWorkspacesApplet {
                 self.config.show_workspace_numbers = enabled;
                 self.write_config();
             }
+            Message::ShowAppIcons(enabled) => {
+                self.config.show_app_icons = enabled;
+                self.write_config();
+            }
             Message::MaxVisibleIcons(limit) => {
                 self.config.max_visible_icons = visible_icon_limit(limit);
                 self.write_config();
@@ -3177,14 +3195,14 @@ impl cosmic::Application for IcedWorkspacesApplet {
             let horizontal = self.core.applet.is_horizontal();
             let active = w.state.contains(ext_workspace_handle_v1::State::Active);
             let apps = self.apps_for_workspace(w);
-            let icons = display_icons(&apps, self.config.show_one_icon_per_application);
+            let icons = self.workspace_icons(&apps);
             let major_size = self.workspace_button_major_size(&icons);
             let (width, height) = if horizontal {
                 (major_size, suggested_window_size.1.get() as f32)
             } else {
                 (suggested_window_size.0.get() as f32, major_size)
             };
-            let has_apps = !icons.is_empty();
+            let has_apps = !apps.is_empty();
             let normal = self.workspace_pill_visual(w, &icons, width, height, false);
             let hovered = self.workspace_pill_visual(w, &icons, width, height, true);
             let btn = button(hover_switch(normal, hovered))
@@ -3331,8 +3349,19 @@ impl cosmic::Application for IcedWorkspacesApplet {
                     .width(Length::Fill)
             ),
             padded_control(
-                toggler(self.config.show_workspace_numbers)
-                    .on_toggle(Message::ShowWorkspaceNumbers)
+                toggler(self.config.show_app_icons)
+                    .on_toggle(Message::ShowAppIcons)
+                    .label(crate::fl!("show-app-icons"))
+                    .text_size(14)
+                    .width(Length::Fill)
+            ),
+            padded_control(
+                toggler(self.show_numbers())
+                    .on_toggle_maybe(
+                        self.config
+                            .show_app_icons
+                            .then_some(Message::ShowWorkspaceNumbers),
+                    )
                     .label(crate::fl!("show-workspace-numbers"))
                     .text_size(14)
                     .width(Length::Fill)
