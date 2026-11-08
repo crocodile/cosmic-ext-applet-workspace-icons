@@ -97,7 +97,7 @@ fn probe(
     hovered: bool,
     renderer: &cosmic::Renderer,
 ) -> Probe {
-    let major = app.workspace_button_major_size(icons);
+    let major = app.workspace_button_major_size(&workspace.name, icons);
     let cross = app.workspace_cross_axis_size();
     let (width, height) = match app.layout {
         Layout::Row => (major, cross),
@@ -213,7 +213,7 @@ fn calculated_button_size_matches_actual_overflow_layout() {
                                     }
                                     let actual = workspace_major_size(
                                         cross,
-                                        app.number_section_major_size(true),
+                                        app.number_section_major_size(true, &workspace.name),
                                         major(p.app_group, layout),
                                         numbers,
                                         app.workspace_content_edge_padding(&icons),

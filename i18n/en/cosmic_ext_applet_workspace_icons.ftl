@@ -5,6 +5,7 @@ show-one-icon-per-application = Show one icon per application
 max-visible-icons = Limit the number of icons to
 pill-style = Pill style
 show-workspace-numbers = Show workspace numbers
+workspace-number-style = Number style
 empty-workspace = Workspace { $name } — Empty
 pinned-empty-workspace = Workspace { $name } — Pinned, empty
 pill-style-filled = All filled

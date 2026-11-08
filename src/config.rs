@@ -26,11 +26,20 @@ pub enum WorkspacePillStyle {
     Outlined,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum WorkspaceNumberStyle {
+    #[default]
+    Arabic,
+    Roman,
+    ChineseJapanese,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, CosmicConfigEntry)]
 #[version = 4]
 #[serde(default)]
 pub struct WorkspacesAppletConfig {
     pub show_workspace_numbers: bool,
+    pub workspace_number_style: WorkspaceNumberStyle,
     pub dim_minimized_window_icons: bool,
     pub highlight_maximized_window_icons: bool,
     pub show_one_icon_per_application: bool,
@@ -46,6 +55,7 @@ impl Default for WorkspacesAppletConfig {
     fn default() -> Self {
         Self {
             show_workspace_numbers: true,
+            workspace_number_style: WorkspaceNumberStyle::Arabic,
             dim_minimized_window_icons: true,
             highlight_maximized_window_icons: true,
             show_one_icon_per_application: true,
