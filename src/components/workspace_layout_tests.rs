@@ -52,6 +52,40 @@ fn fixture_workspace() -> Workspace {
     }
 }
 
+#[test]
+fn hidden_app_icons_leave_number_only_pills() {
+    let mut app = fixture_app(Layout::Row, PanelSize::S, 40.0);
+    app.config.show_workspace_numbers = false;
+    app.config.show_app_icons = false;
+    let metadata = AppMetadata {
+        name: "Browser".to_owned(),
+        icon_source: cosmic::desktop::fde::IconSource::from_unknown("browser"),
+    };
+    let apps = [WorkspaceApp {
+        app_id: "browser",
+        metadata: &metadata,
+        minimized_titles: Vec::new(),
+        windows: vec![WorkspaceWindowState {
+            minimized: false,
+            maximized: false,
+        }],
+    }];
+
+    let icons = app.workspace_icons(&apps);
+
+    assert!(icons.is_empty());
+    // the number stays even though the numbers setting is off, so pills are never blank
+    assert!(app.show_numbers());
+    assert_eq!(
+        app.workspace_button_major_size(&icons),
+        app.suggested_button_size()
+    );
+
+    app.config.show_app_icons = true;
+    assert_eq!(app.workspace_icons(&apps).len(), 1);
+    assert!(!app.show_numbers());
+}
+
 fn renderer() -> cosmic::Renderer {
     cosmic::Renderer::new(Font::DEFAULT, Pixels(16.0))
 }
